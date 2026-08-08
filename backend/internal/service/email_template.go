@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
@@ -274,6 +275,7 @@ func (s *EmailTemplateService) TestSendInvitation(ctx context.Context, actorID, 
 
 	subject := fmt.Sprintf("[Test] %s · %s", rendered.Subject, time.Now().Format("2006-01-02 15:04:05"))
 	if err := s.mailer.Send(ctx, user.Email, subject, rendered.Text, rendered.HTML, rendered.Attachments...); err != nil {
+		slog.Error("resend test send failed", "to", user.Email, "error", err)
 		return fmt.Errorf("send test email: %w", err)
 	}
 

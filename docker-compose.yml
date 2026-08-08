@@ -17,6 +17,7 @@ services:
     image: ghcr.io/${GHCR_OWNER}/mini-evvy-frontend:latest
     ports:
       - "80:80"
+      - "443:443"
     mem_limit: 64m
     restart: unless-stopped
     depends_on:

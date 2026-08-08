@@ -1,4 +1,4 @@
-:80 {
+(mini_evvy) {
 	handle_path /mini-evvy/api/* {
 		reverse_proxy api:8080
 	}
@@ -9,4 +9,17 @@
 		try_files {path} /index.html
 		file_server
 	}
+}
+
+# IP / plain HTTP until DNS is cut over
+:80 {
+	import mini_evvy
+}
+
+evvy.fun, www.evvy.fun {
+	import mini_evvy
+}
+
+kuma.evvy.fun {
+	reverse_proxy uptime-kuma:3001
 }

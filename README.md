@@ -31,8 +31,8 @@ Copy `backend/.env.example` to `backend/.env` and set:
 | `DATABASE_URL` | Yes | Postgres connection string for app + worker |
 | `MIGRATE_DATABASE_URL` | Yes | Postgres URL for migrations (can differ from pooler URL) |
 | `JWT_SECRET` | Yes | HS256 secret for JWT |
-| `RESEND_API_KEY` | Worker | Resend API key for invitation emails |
-| `EMAIL_FROM` | Worker | Sender address (e.g. `onboarding@resend.dev`) |
+| `RESEND_API_KEY` | API + Worker | Resend API key for invitation emails |
+| `EMAIL_FROM` | API + Worker | Sender address — see [Resend email](#resend-email) below |
 | `S3_ENDPOINT` | API | Supabase Storage S3 endpoint (`…/storage/v1/s3`) |
 | `S3_REGION` | API | Supabase storage region |
 | `S3_ACCESS_KEY_ID` | API | Storage S3 access key |
@@ -66,6 +66,34 @@ Required for `finalize_seating` and `send_invitation` jobs:
 cd backend
 go run ./cmd/worker/
 ```
+
+### Resend email
+
+Invitation emails use [Resend](https://resend.com). Test sends (API) go to the logged-in user; guest invitations (worker) go to the guest address.
+
+**Sandbox / testing address:** If `EMAIL_FROM` is `onboarding@resend.dev` (or any unverified domain), Resend only allows sending to the **email on your Resend account**. Other recipients fail with a Resend API error (often HTTP 403).
+
+**Production (evvy.fun):** In Resend → Domains, add and verify `evvy.fun` (DNS SPF/DKIM). Then set on the VPS:
+
+```bash
+EMAIL_FROM=Mini Evvy <noreply@evvy.fun>
+```
+
+Restart api and worker after changing env:
+
+```bash
+cd /opt/mini-evvy
+sudo docker compose up -d api worker
+```
+
+**Troubleshooting failed sends:** Resend returns the error body in app logs:
+
+```bash
+sudo docker compose logs worker --tail 100 | grep -i resend
+sudo docker compose logs api --tail 100 | grep -i resend
+```
+
+Look for `resend send failed` / `resend test send failed` with the full `resend api error: status …` message.
 
 ### Build
 
@@ -237,7 +265,7 @@ GHCR_OWNER=your-github-username
 echo <PAT_with_read:packages> | docker login ghcr.io -u your-github-username --password-stdin
 ```
 
-5. Open firewall: **80** (and **443** when you add TLS), **22** for SSH. Do not expose API port 8080 publicly. For Uptime Kuma (port **3001**), either restrict to your IP or keep public with a strong admin password.
+5. Open firewall: **80**, **443**, **22** (SSH). Do not expose API port 8080 publicly. Uptime Kuma: use `https://kuma.evvy.fun` after DNS, or port **3001** (restrict to your IP if exposed).
 
 ### GitHub Actions secrets
 
@@ -270,26 +298,51 @@ docker compose up -d --remove-orphans
 
 ### Subpath deploy (`/mini-evvy`)
 
-The app is configured for **`http://YOUR_HOST/mini-evvy/`** (not site root), so you can host other apps on the same VPS later.
+The app is configured for **`https://evvy.fun/mini-evvy/`** (subpath, not site root), so you can host other apps on the same VPS later.
 
 | File | Setting |
 |------|---------|
-| [`frontend/Caddyfile`](frontend/Caddyfile) | `/mini-evvy/api/*` → API, `/mini-evvy/*` → SPA |
+| [`frontend/Caddyfile`](frontend/Caddyfile) | `evvy.fun` + `/mini-evvy/api/*` → API, `/mini-evvy/*` → SPA; `kuma.evvy.fun` → Uptime Kuma |
 | [`frontend/.env.example`](frontend/.env.example) | `VITE_BASE_PATH=/mini-evvy`, `VITE_API_BASE_URL=/mini-evvy/api` |
 | [`frontend/Dockerfile`](frontend/Dockerfile) | Same values as build `ARG`s |
 
 **URLs after deploy:**
 
-- App: `http://YOUR_VPS_IP/mini-evvy/`
-- Health: `http://YOUR_VPS_IP/mini-evvy/api/health`
+- App: `https://evvy.fun/mini-evvy/`
+- Health: `https://evvy.fun/mini-evvy/api/health`
+- Uptime Kuma: `https://kuma.evvy.fun` (or `http://YOUR_VPS_IP:3001`)
+
+Plain IP still works on HTTP: `http://YOUR_VPS_IP/mini-evvy/`
 
 Local dev: copy `frontend/.env.example` to `frontend/.env`, then `npm run dev` → `http://localhost:5173/mini-evvy/`
 
 **Adding another app later:** keep mini-evvy on `/mini-evvy`, add a root Caddy (or nginx) on the host that routes `/mini-evvy` → this stack and `/other-app` → another container. Do not publish two apps both on host `:80` without a path-based router.
 
-### TLS / custom domain
+### DNS for evvy.fun
 
-[`frontend/Caddyfile`](frontend/Caddyfile) listens on `:80` by default. When you have a domain, replace `:80` with your hostname so Caddy issues Let's Encrypt certificates, and add `443:443` to the `frontend` service in `docker-compose.yml`.
+At your domain registrar, point records to your VPS IP (e.g. `43.133.134.234`):
+
+| Type | Name | Value |
+|------|------|--------|
+| A | `@` | VPS IP |
+| A | `www` | VPS IP |
+| A | `kuma` | VPS IP |
+
+Wait for DNS to propagate (`dig +short evvy.fun`). Open Lighthouse firewall **443** (and **80** for Let's Encrypt).
+
+### TLS
+
+[`frontend/Caddyfile`](frontend/Caddyfile) uses `evvy.fun` and `www.evvy.fun`; Caddy requests Let's Encrypt certificates automatically. [`docker-compose.yml`](docker-compose.yml) maps **443** on the `frontend` service.
+
+After DNS works, rebuild and redeploy the **frontend** image, then:
+
+```bash
+cd /opt/mini-evvy
+sudo docker compose pull frontend
+sudo docker compose up -d frontend
+```
+
+Test: `curl -I https://evvy.fun/mini-evvy/api/health`
 
 ### Local Docker smoke test
 
@@ -311,7 +364,7 @@ sudo docker compose pull uptime-kuma   # optional; pulls latest Kuma image
 sudo docker compose up -d uptime-kuma
 ```
 
-**UI:** `http://YOUR_VPS_IP:3001` — first visit creates the admin account.
+**UI:** `https://kuma.evvy.fun` (after DNS + frontend redeploy) or `http://YOUR_VPS_IP:3001`
 
 **Firewall (recommended):** allow `3001` only from your IP, or use SSH tunnel:
 
@@ -324,9 +377,9 @@ ssh -L 3001:127.0.0.1:3001 ubuntu@YOUR_VPS_IP
 
 | Name | URL | Notes |
 |------|-----|--------|
-| mini-evvy API health | `http://YOUR_VPS_IP/mini-evvy/api/health` | Keyword: `ok` (optional) |
-| mini-evvy SPA | `http://YOUR_VPS_IP/mini-evvy/` | Expect 200 |
-| mini-evvy login | `http://YOUR_VPS_IP/mini-evvy/login` | Expect 200 |
+| mini-evvy API health | `https://evvy.fun/mini-evvy/api/health` | Keyword: `ok` (optional) |
+| mini-evvy SPA | `https://evvy.fun/mini-evvy/` | Expect 200 |
+| mini-evvy login | `https://evvy.fun/mini-evvy/login` | Expect 200 |
 
 Use your public IP or domain. Interval **60s** is fine; enable email/Telegram/Discord notification in **Settings → Notifications**.
 

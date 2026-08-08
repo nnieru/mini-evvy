@@ -282,6 +282,7 @@ func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) er
 	}
 
 	if err := p.mailer.Send(ctx, guest.Email, rendered.Subject, rendered.Text, rendered.HTML, rendered.Attachments...); err != nil {
+		slog.Error("resend send failed", "job_type", jobtype.SendInvitation, "to", guest.Email, "error", err)
 		return fmt.Errorf("send invitation email: %w", err)
 	}
 

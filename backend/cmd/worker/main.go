@@ -96,7 +96,7 @@ func main() {
 
 		runErr := processor.Run(ctx, job)
 		if runErr != nil {
-			slog.Error("job failed", "job_id", job.ID, "error", runErr)
+			slog.Error("job failed", "job_id", job.ID, "type", job.Type, "error", runErr)
 			retryCount := job.RetryCount + 1
 			if err := jobRepo.MarkFailed(ctx, pool, job.ID, retryCount, maxRetries); err != nil {
 				slog.Error("mark job failed", "job_id", job.ID, "error", err)

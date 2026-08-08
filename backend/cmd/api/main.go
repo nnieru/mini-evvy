@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -201,9 +204,28 @@ func main() {
 	})
 
 	addr := ":" + cfg.Port
-	fmt.Println("listening on", addr)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
 
-	if err := http.ListenAndServe(addr, r); err != nil {
-		log.Fatal(err)
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Println("listening on", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
+
+	<-shutdownCtx.Done()
+	log.Println("shutting down")
+
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(timeoutCtx); err != nil {
+		log.Printf("shutdown: %v", err)
 	}
 }
