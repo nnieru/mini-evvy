@@ -1,10 +1,11 @@
 :80 {
-	handle_path /api/* {
+	handle_path /mini-evvy/api/* {
 		reverse_proxy api:8080
 	}
 
-	handle {
+	handle /mini-evvy/* {
 		root * /srv
+		uri strip_prefix /mini-evvy
 		try_files {path} /index.html
 		file_server
 	}

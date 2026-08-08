@@ -3,7 +3,7 @@ import { useAuthStore } from '@/features/auth/stores/auth'
 import { isStaffForEvent } from '@/app/router/roleGuards'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',

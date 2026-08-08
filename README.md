@@ -227,15 +227,17 @@ cp backend/.env.example /opt/mini-evvy/.env
 GHCR_OWNER=your-github-username
 ```
 
-4. Log in to GHCR on the VPS (required if packages are private):
+4. **GHCR pull access** — pick one:
+
+   **A. Public packages (simplest)** — GitHub → **Packages** → each of `mini-evvy-api`, `mini-evvy-worker`, `mini-evvy-frontend` → **Package settings** → **Change visibility** → Public. No login on VPS.
+
+   **B. Private packages** — create a GitHub PAT with `read:packages`, add repo secret `GHCR_PAT`. CI logs into GHCR on the VPS before `docker compose pull`. For manual pulls on the VPS:
 
 ```bash
 echo <PAT_with_read:packages> | docker login ghcr.io -u your-github-username --password-stdin
 ```
 
-Alternatively, make the three `mini-evvy-*` GHCR packages **public** to skip `docker login` on the server.
-
-5. Open firewall: **80** (and **443** when you add TLS), **22** for SSH. Do not expose API port 8080 publicly.
+5. Open firewall: **80** (and **443** when you add TLS), **22** for SSH. Do not expose API port 8080 publicly. For Uptime Kuma (port **3001**), either restrict to your IP or keep public with a strong admin password.
 
 ### GitHub Actions secrets
 
@@ -246,6 +248,7 @@ Add in repo **Settings → Secrets and variables → Actions**:
 | `VPS_HOST` | VPS IP or hostname |
 | `VPS_USERNAME` | SSH user (e.g. `ubuntu`) |
 | `VPS_SSH_KEY` | Private key (PEM) for that user |
+| `GHCR_PAT` | GitHub PAT with `read:packages` (required if GHCR images are **private**; omit if packages are public) |
 | `VPS_PORT` | Optional SSH port (default **22** if not set in workflow; add `port:` to deploy job if not 22) |
 
 ### Deploy
@@ -255,15 +258,34 @@ Push to `main`. Workflow [`.github/workflows/deploy.yml`](.github/workflows/depl
 1. `go test ./...` in `backend/`
 2. Build and push `mini-evvy-api`, `mini-evvy-worker`, `mini-evvy-frontend` to `ghcr.io/<owner>/...`
 3. SCP `docker-compose.yml` to `/opt/mini-evvy/`
-4. `docker compose pull && docker compose up -d --remove-orphans`
+4. `docker login ghcr.io` (if private) + `docker compose pull && docker compose up -d --remove-orphans`
 
-Manual deploy on the VPS:
+Manual deploy on the VPS (after `docker login ghcr.io` if packages are private):
 
 ```bash
 cd /opt/mini-evvy
 docker compose pull
 docker compose up -d --remove-orphans
 ```
+
+### Subpath deploy (`/mini-evvy`)
+
+The app is configured for **`http://YOUR_HOST/mini-evvy/`** (not site root), so you can host other apps on the same VPS later.
+
+| File | Setting |
+|------|---------|
+| [`frontend/Caddyfile`](frontend/Caddyfile) | `/mini-evvy/api/*` → API, `/mini-evvy/*` → SPA |
+| [`frontend/.env.example`](frontend/.env.example) | `VITE_BASE_PATH=/mini-evvy`, `VITE_API_BASE_URL=/mini-evvy/api` |
+| [`frontend/Dockerfile`](frontend/Dockerfile) | Same values as build `ARG`s |
+
+**URLs after deploy:**
+
+- App: `http://YOUR_VPS_IP/mini-evvy/`
+- Health: `http://YOUR_VPS_IP/mini-evvy/api/health`
+
+Local dev: copy `frontend/.env.example` to `frontend/.env`, then `npm run dev` → `http://localhost:5173/mini-evvy/`
+
+**Adding another app later:** keep mini-evvy on `/mini-evvy`, add a root Caddy (or nginx) on the host that routes `/mini-evvy` → this stack and `/other-app` → another container. Do not publish two apps both on host `:80` without a path-based router.
 
 ### TLS / custom domain
 
@@ -274,5 +296,40 @@ docker compose up -d --remove-orphans
 ```bash
 # From repo root, with backend/.env copied to .env and GHCR_OWNER set
 docker compose up -d
-# Open http://localhost (frontend proxies /api to api service)
+# Open http://localhost/mini-evvy/ (frontend proxies /mini-evvy/api to api service)
 ```
+
+### Monitoring (Uptime Kuma)
+
+[`docker-compose.yml`](docker-compose.yml) includes **Uptime Kuma** on port **3001** (Docker Hub image, not GHCR).
+
+**Start / update on VPS:**
+
+```bash
+cd /opt/mini-evvy
+sudo docker compose pull uptime-kuma   # optional; pulls latest Kuma image
+sudo docker compose up -d uptime-kuma
+```
+
+**UI:** `http://YOUR_VPS_IP:3001` — first visit creates the admin account.
+
+**Firewall (recommended):** allow `3001` only from your IP, or use SSH tunnel:
+
+```bash
+ssh -L 3001:127.0.0.1:3001 ubuntu@YOUR_VPS_IP
+# then open http://localhost:3001
+```
+
+**Monitors to add** (Monitor Type → HTTP(s)):
+
+| Name | URL | Notes |
+|------|-----|--------|
+| mini-evvy API health | `http://YOUR_VPS_IP/mini-evvy/api/health` | Keyword: `ok` (optional) |
+| mini-evvy SPA | `http://YOUR_VPS_IP/mini-evvy/` | Expect 200 |
+| mini-evvy login | `http://YOUR_VPS_IP/mini-evvy/login` | Expect 200 |
+
+Use your public IP or domain. Interval **60s** is fine; enable email/Telegram/Discord notification in **Settings → Notifications**.
+
+**Internal check (optional):** from the same Docker network Kuma can hit `http://frontend/mini-evvy/api/health` — useful to detect Caddy-only issues vs public routing; public URLs are what matter for real availability.
+
+Data persists in Docker volume `uptime-kuma` across restarts.

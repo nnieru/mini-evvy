@@ -21,3 +21,15 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    volumes:
+      - uptime-kuma:/app/data
+    ports:
+      - "3001:3001"
+    mem_limit: 128m
+    restart: unless-stopped
+
+volumes:
+  uptime-kuma:

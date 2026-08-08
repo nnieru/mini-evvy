@@ -23,6 +23,7 @@ import type { GuestImportResult } from '../api/guests'
 
 const route = useRoute()
 const eventId = computed(() => route.params.eventId as string)
+const guestImportTemplateUrl = `${import.meta.env.BASE_URL}templates/guests_import.xlsx`
 
 const showCreate = ref(false)
 const error = ref('')
@@ -96,7 +97,7 @@ async function onImportFile(event: Event) {
       <div class="flex flex-wrap gap-2">
         <a
           v-if="isStaff"
-          href="/templates/guests_import.xlsx"
+          :href="guestImportTemplateUrl"
           download
           class="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface"
         >
