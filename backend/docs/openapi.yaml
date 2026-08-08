@@ -1,0 +1,2758 @@
+openapi: 3.0.3
+info:
+  title: mini-evvy API
+  description: |
+    Event seating, bookings, payments, attendance, and background jobs.
+
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Users
+  - name: Organizations
+  - name: Events
+  - name: Categories
+  - name: Seats
+  - name: Guests
+  - name: Bookings
+  - name: Payments
+  - name: Attendance
+  - name: Jobs
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /me:
+    get:
+      tags: [Users]
+      summary: Current user
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /me/events:
+    get:
+      tags: [Events]
+      summary: List my events across organizations
+      description: Returns events from all organizations where the user is a member.
+      operationId: listMyEvents
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyEventListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /orgs:
+    post:
+      tags: [Organizations]
+      summary: Create organization
+      description: Allowed for users with no memberships or at least one owner/admin role. Member-only users receive 403.
+      operationId: createOrganization
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrgRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Organizations]
+      summary: List my organizations
+      operationId: listOrganizations
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /orgs/{orgId}:
+    get:
+      tags: [Organizations]
+      summary: Get organization
+      operationId: getOrganization
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orgId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /orgs/{orgId}/my-role:
+    get:
+      tags: [Organizations]
+      summary: Get current user's role in organization
+      operationId: getMyRole
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orgId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyRoleEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /orgs/{orgId}/members:
+    post:
+      tags: [Organizations]
+      summary: Add member
+      description: Requires org owner or admin. Role is `admin` or `member`.
+      operationId: addMember
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMemberRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Organizations]
+      summary: List members
+      operationId: listMembers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orgId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /orgs/{orgId}/events:
+    post:
+      tags: [Events]
+      summary: Create event
+      operationId: createEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Events]
+      summary: List events in organization
+      operationId: listEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orgId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /events/{eventId}:
+    get:
+      tags: [Events]
+      summary: Get event
+      operationId: getEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+    patch:
+      tags: [Events]
+      summary: Update event
+      operationId: updateEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEventRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/finalize-seating:
+    post:
+      tags: [Jobs]
+      summary: Enqueue finalize seating job
+      description: |
+        Owner/admin. Event must be in seating_phase `open`. Enqueues a job that assigns seats
+        to unbooked guests with barcodes (no emails). When the job completes, phase becomes
+        `preview`. Poll job status; when complete, review via seating-preview and approve or reject.
+      operationId: finalizeSeating
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "202":
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobIdEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+        "409":
+          description: Finalize already in progress or seating not open
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /events/{eventId}/seating-preview:
+    get:
+      tags: [Jobs]
+      summary: Seating preview report
+      description: Org member. Available when seating_phase is `preview` or `approved`. Lists guest assignments.
+      operationId: getSeatingPreview
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatingPreviewListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/seating-approve:
+    post:
+      tags: [Jobs]
+      summary: Approve seating preview
+      description: Owner/admin. Phase must be `preview`. Enqueues send_invitation for each active booking; sets phase `approved`.
+      operationId: approveSeating
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/seating-reject:
+    post:
+      tags: [Jobs]
+      summary: Reject seating preview
+      description: Owner/admin. Phase must be `preview` or `approved`. Cancels pending/paid invited bookings, frees seats, sets phase `open`.
+      operationId: rejectSeating
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/jobs:
+    get:
+      tags: [Jobs]
+      summary: List jobs for event
+      description: Owner/admin. Ordered by created_at DESC.
+      operationId: listEventJobs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/email-template/invitation:
+    get:
+      tags: [EmailTemplates]
+      summary: Get invitation email template
+      description: Owner/admin. Returns saved config or system defaults.
+      operationId: getInvitationEmailTemplate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationEmailTemplateEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+    put:
+      tags: [EmailTemplates]
+      summary: Save invitation email template
+      description: Owner/admin.
+      operationId: upsertInvitationEmailTemplate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationEmailTemplate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationEmailTemplateEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+    delete:
+      tags: [EmailTemplates]
+      summary: Reset invitation email template
+      description: Owner/admin. Deletes custom template so system default is used.
+      operationId: resetInvitationEmailTemplate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "204":
+          description: No Content
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/email-template/invitation/preview:
+    post:
+      tags: [EmailTemplates]
+      summary: Preview invitation email
+      description: Owner/admin. Optional body uses draft config; otherwise saved/default.
+      operationId: previewInvitationEmailTemplate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationEmailTemplate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationEmailPreviewEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/email-template/invitation/test-send:
+    post:
+      tags: [EmailTemplates]
+      summary: Send test invitation email
+      description: Owner/admin. Sends sample email to current user (rate limited).
+      operationId: testSendInvitationEmailTemplate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationEmailTemplate"
+      responses:
+        "204":
+          description: No Content
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+        "429":
+          description: Rate limited
+
+  /events/{eventId}/email-template/invitation/banner:
+    post:
+      tags: [EmailTemplates]
+      summary: Upload invitation banner image
+      description: Owner/admin. Stores image on server; returns public URL for banner_image_url.
+      operationId: uploadInvitationEmailBanner
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BannerUploadEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      summary: Get job by ID
+      description: Owner/admin (via event_id in job data).
+      operationId: getJob
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/jobId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+
+  /events/{eventId}/categories:
+    post:
+      tags: [Categories]
+      summary: Create seat category
+      operationId: createCategory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCategoryRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Categories]
+      summary: List categories
+      operationId: listCategories
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /categories/{categoryId}:
+    get:
+      tags: [Categories]
+      summary: Get category
+      operationId: getCategory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Categories]
+      summary: Update category
+      operationId: updateCategory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/categoryId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /events/{eventId}/seats:
+    post:
+      tags: [Seats]
+      summary: Create seats (batch)
+      operationId: createSeats
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSeatsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatListEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Seats]
+      summary: List seats
+      operationId: listSeats
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [available, reserved, occupied, blocked]
+          description: Filter seats by status.
+        - name: category_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter seats by ticket category.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /seats/{seatId}:
+    get:
+      tags: [Seats]
+      summary: Get seat
+      operationId: getSeat
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/seatId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/SeatNotFound"
+    patch:
+      tags: [Seats]
+      summary: Update seat
+      operationId: updateSeat
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/seatId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSeatRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/SeatNotFound"
+
+  /events/{eventId}/guests:
+    post:
+      tags: [Guests]
+      summary: Create guest
+      description: Org member. Event seating must be editable (not in preview/approved).
+      operationId: createGuest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGuestRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Guests]
+      summary: List guests
+      operationId: listGuests
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /events/{eventId}/guests/import:
+    post:
+      tags: [Guests]
+      summary: Import guests from Excel
+      description: |
+        Owner/admin. Upload Nadaland-style `.xlsx` with columns Name, Email, Invoice Code,
+        Order Time, Ticket Name, Ticket Quantity, Status. Ticket Name maps to category code.
+        PAID rows set paid_date from Order Time. Duplicate name+email+category bumps ticket_count.
+      operationId: importGuests
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestImportResultEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Seating locked for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /guests/{guestId}:
+    get:
+      tags: [Guests]
+      summary: Get guest
+      operationId: getGuest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/guestId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/GuestNotFound"
+    patch:
+      tags: [Guests]
+      summary: Update guest
+      description: Org member. Event seating must be editable (not in preview/approved).
+      operationId: updateGuest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/guestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGuestRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/GuestNotFound"
+
+  /events/{eventId}/bookings:
+    post:
+      tags: [Bookings]
+      summary: Create booking (manual seat assignment)
+      description: |
+        Org member. Creates a booking for an available seat.
+
+        Provide either an existing `guest_id` (legacy) or inline guest fields
+        (`name`, `email`, `category_id`) to create the guest and booking in one
+        transaction. Inline guest bookings use `source=invited` and `ticket_count=1`.
+      operationId: createBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Seat not available or category mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      tags: [Bookings]
+      summary: List bookings
+      description: |
+        Org member. Returns active bookings only (cancelled excluded). Optional
+        `payment_status` filter and pagination via `page` / `page_size`.
+      operationId: listBookings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: payment_status
+          in: query
+          schema:
+            type: string
+            enum: [all, paid, unpaid]
+            default: all
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedBookingListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /events/{eventId}/bookings/batch:
+    post:
+      tags: [Bookings]
+      summary: Create bookings in batch (seat grid)
+      description: |
+        Org member. Creates one guest and one booking per item in a single
+        transaction. All seats must be available, belong to the event, and share
+        the same category. Guest category is taken from each seat's category_id.
+      operationId: createBookingsBatch
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingBatchRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingListEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Seat not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /bookings/{bookingId}:
+    get:
+      tags: [Bookings]
+      summary: Get booking
+      operationId: getBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/bookingId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/BookingNotFound"
+    patch:
+      tags: [Bookings]
+      summary: Update booking status
+      description: |
+        Org member. Transitions: pending→not_paid|paid|cancelled; not_paid→paid|cancelled; paid→not_paid|cancelled (not_paid frees paid hold to reserved).
+        paid sets seat occupied; cancelled releases seat to available.
+      operationId: updateBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/bookingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBookingRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/BookingNotFound"
+    delete:
+      tags: [Bookings]
+      summary: Soft-delete booking
+      description: Org member. Cancels if needed, releases seat, sets deleted_at.
+      operationId: deleteBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/bookingId"
+      responses:
+        "204":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/BookingNotFound"
+
+  /bookings/{bookingId}/resend-invitation:
+    post:
+      tags: [Bookings]
+      summary: Re-send invitation email
+      description: Org member. Booking must not be cancelled; guest must have email.
+      operationId: resendInvitation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/bookingId"
+      responses:
+        "202":
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobIdEnvelope"
+        "400":
+          description: Guest email missing or booking not resendable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/BookingNotFound"
+
+  /bookings/{bookingId}/payments:
+    post:
+      tags: [Payments]
+      summary: Create payment
+      description: |
+        Org member. status `success` on pending/not_paid booking marks booking paid,
+        seat occupied, and sets guest.paid_date when null.
+      operationId: createPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/bookingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/BookingNotFound"
+        "409":
+          description: Booking not payable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      tags: [Payments]
+      summary: List payments for booking
+      operationId: listPayments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/bookingId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/BookingNotFound"
+
+  /events/{eventId}/attendance:
+    post:
+      tags: [Attendance]
+      summary: Check in guest
+      description: |
+        Org member. Provide either `barcode` OR both `guest_id` and `seat_id`.
+        Requires paid booking. Sets status checked_in.
+      operationId: createAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAttendanceRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Guest, seat, or paid booking not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Already checked in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      tags: [Attendance]
+      summary: List attendance logs
+      operationId: listAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /attendance/{attendanceId}:
+    get:
+      tags: [Attendance]
+      summary: Get attendance log
+      operationId: getAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/attendanceId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/AttendanceNotFound"
+    patch:
+      tags: [Attendance]
+      summary: Update attendance (undo check-in)
+      description: Org member. Only transition checked_in → not_checked_in.
+      operationId: updateAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/attendanceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAttendanceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/AttendanceNotFound"
+    delete:
+      tags: [Attendance]
+      summary: Soft-delete attendance log
+      operationId: deleteAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/attendanceId"
+      responses:
+        "204":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/AttendanceNotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT from login/register. Subject is user UUID.
+
+  parameters:
+    orgId:
+      name: orgId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    eventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    categoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    seatId:
+      name: seatId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    guestId:
+      name: guestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    bookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    attendanceId:
+      name: attendanceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    jobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    EventNotFound:
+      description: Event not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    BookingNotFound:
+      description: Booking not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    GuestNotFound:
+      description: Guest not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    SeatNotFound:
+      description: Seat not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    AttendanceNotFound:
+      description: Attendance not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    JobNotFound:
+      description: Job not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          example: true
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: BOOKING_NOT_FOUND
+        message:
+          type: string
+
+    RegisterRequest:
+      type: object
+      required: [name, email, password, confirm_password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        confirm_password:
+          type: string
+          format: password
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    CreateOrgRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    AddMemberRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, member]
+
+    CreateEventRequest:
+      type: object
+      required: [name, start_date]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        start_date:
+          type: string
+          format: date
+          example: "2026-08-15"
+        end_date:
+          type: string
+          format: date
+          nullable: true
+        start_time:
+          type: string
+          nullable: true
+        end_time:
+          type: string
+          nullable: true
+
+    UpdateEventRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, cancelled, completed]
+        description:
+          type: string
+          nullable: true
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+          nullable: true
+        start_time:
+          type: string
+          nullable: true
+        end_time:
+          type: string
+          nullable: true
+
+    CreateCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+          nullable: true
+        price:
+          type: number
+          format: double
+          default: 0
+        currency:
+          type: string
+          default: IDR
+
+    UpdateCategoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+          nullable: true
+        price:
+          type: number
+          format: double
+        currency:
+          type: string
+
+    CreateSeatItem:
+      type: object
+      required: [code, category_id]
+      properties:
+        code:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+        section:
+          type: string
+          nullable: true
+        row:
+          type: integer
+          nullable: true
+        col:
+          type: integer
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [available, reserved, occupied, blocked]
+          default: available
+
+    CreateSeatsRequest:
+      type: object
+      required: [seats]
+      properties:
+        seats:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CreateSeatItem"
+
+    UpdateSeatRequest:
+      type: object
+      properties:
+        code:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+        section:
+          type: string
+          nullable: true
+        row:
+          type: integer
+          nullable: true
+        col:
+          type: integer
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [available, reserved, occupied, blocked]
+
+    CreateGuestRequest:
+      type: object
+      required: [name, email, category_id, ticket_count]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+        ticket_count:
+          type: integer
+          minimum: 1
+        paid_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: RFC3339; optional manual paid date for finalize priority
+
+    UpdateGuestRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+        ticket_count:
+          type: integer
+        paid_date:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateBookingRequest:
+      type: object
+      description: |
+        Requires `seat_id`. Provide either `guest_id` (legacy) or all of
+        `name`, `email`, and `category_id` for inline guest creation.
+      required: [seat_id]
+      properties:
+        guest_id:
+          type: string
+          format: uuid
+          description: Existing guest ID (legacy flow).
+        seat_id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          enum: [invited, onsite]
+          description: Required for legacy `guest_id` flow. Defaults to invited.
+        name:
+          type: string
+          description: Guest name for inline guest creation.
+        email:
+          type: string
+          format: email
+          description: Guest email for inline guest creation.
+        category_id:
+          type: string
+          format: uuid
+          description: Ticket category for inline guest creation.
+        notes:
+          type: string
+          nullable: true
+
+    CreateBookingBatchItem:
+      type: object
+      required: [seat_id, name, email]
+      properties:
+        seat_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+
+    CreateBookingBatchRequest:
+      type: object
+      required: [items]
+      properties:
+        notes:
+          type: string
+          nullable: true
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CreateBookingBatchItem"
+
+    UpdateBookingRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, not_paid, paid, cancelled]
+        notes:
+          type: string
+          nullable: true
+
+    CreatePaymentRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: string
+          description: Positive decimal string
+          example: "150000.00"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          default: IDR
+        method:
+          type: string
+          nullable: true
+        gateway_ref:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, success, failed, refunded]
+          default: pending
+
+    CreateAttendanceRequest:
+      type: object
+      description: Provide barcode OR guest_id+seat_id (not both).
+      properties:
+        barcode:
+          type: string
+        guest_id:
+          type: string
+          format: uuid
+        seat_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          nullable: true
+
+    UpdateAttendanceRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [not_checked_in]
+        message:
+          type: string
+          nullable: true
+
+    JobIdResponse:
+      type: object
+      required: [job_id]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        my_role:
+          type: string
+          enum: [owner, admin, member]
+          description: Present on list responses; caller's role in this organization.
+
+    Member:
+      type: object
+      properties:
+        user_role_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        role_id:
+          type: string
+          format: uuid
+        role_name:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        seating_phase:
+          type: string
+          enum: [open, preview, approved]
+        description:
+          type: string
+          nullable: true
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+          nullable: true
+        start_time:
+          type: string
+          nullable: true
+        end_time:
+          type: string
+          nullable: true
+        creator_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SeatCategory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        code:
+          type: string
+          nullable: true
+        price:
+          type: number
+        currency:
+          type: string
+        event_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Seat:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        section:
+          type: string
+          nullable: true
+        row:
+          type: integer
+          nullable: true
+        col:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [available, reserved, occupied, blocked]
+        description:
+          type: string
+          nullable: true
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Guest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        paid_date:
+          type: string
+          format: date-time
+          nullable: true
+        ticket_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        guest_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        seat_id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          enum: [invited, onsite]
+        status:
+          type: string
+          enum: [pending, not_paid, paid, cancelled]
+        notes:
+          type: string
+          nullable: true
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        barcode:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        updated_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BookingListItem:
+      allOf:
+        - $ref: "#/components/schemas/Booking"
+        - type: object
+          properties:
+            guest_name:
+              type: string
+            guest_email:
+              type: string
+            seat_code:
+              type: string
+            payment_label:
+              type: string
+              enum: [paid, unpaid]
+
+    PaginatedBookingList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookingListItem"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        booking_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+        currency:
+          type: string
+        method:
+          type: string
+          nullable: true
+        gateway_ref:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, success, failed, refunded]
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Attendance:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        guest_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        seat_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [checked_in, not_checked_in]
+        message:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        updated_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [finalize_seating, send_invitation]
+        status:
+          type: string
+          enum: [pending, in_process, done, failed]
+        retry_count:
+          type: integer
+        data:
+          type: object
+          additionalProperties: true
+          description: JSON payload (event_id, booking_id, guest_id, actor_id, etc.)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AuthEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/AuthResponse"
+
+    UserEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/User"
+
+    OrganizationEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Organization"
+
+    OrganizationListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Organization"
+
+    MemberEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Member"
+
+    MemberListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+
+    MyRole:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [owner, admin, member]
+
+    MyRoleEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/MyRole"
+
+    EventEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Event"
+
+    EventListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+
+    MyEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          required: [organization_name]
+          properties:
+            organization_name:
+              type: string
+
+    MyEventListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyEvent"
+
+    CategoryEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/SeatCategory"
+
+    CategoryListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeatCategory"
+
+    SeatEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Seat"
+
+    SeatListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Seat"
+
+    GuestEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Guest"
+
+    GuestListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Guest"
+
+    GuestImportRowError:
+      type: object
+      properties:
+        row:
+          type: integer
+        message:
+          type: string
+
+    GuestImportResult:
+      type: object
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        failed:
+          type: integer
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuestImportRowError"
+
+    GuestImportResultEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/GuestImportResult"
+
+    BookingEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Booking"
+
+    BookingListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+
+    PaginatedBookingListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/PaginatedBookingList"
+
+    PaymentEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Payment"
+
+    PaymentListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+
+    AttendanceEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Attendance"
+
+    AttendanceListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attendance"
+
+    JobEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Job"
+
+    JobListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+
+    JobIdEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/JobIdResponse"
+
+    InvitationEmailTemplate:
+      type: object
+      properties:
+        subject:
+          type: string
+        headline:
+          type: string
+        greeting:
+          type: string
+        body_html:
+          type: string
+        footer_text:
+          type: string
+        show_qr:
+          type: boolean
+        show_seat_code:
+          type: boolean
+        show_ticket_code:
+          type: boolean
+        banner_enabled:
+          type: boolean
+        banner_image_url:
+          type: string
+          nullable: true
+        banner_alt:
+          type: string
+        primary_color:
+          type: string
+        is_default:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    InvitationEmailPreview:
+      type: object
+      properties:
+        subject:
+          type: string
+        html:
+          type: string
+
+    InvitationEmailTemplateEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/InvitationEmailTemplate"
+
+    InvitationEmailPreviewEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/InvitationEmailPreview"
+
+    BannerUpload:
+      type: object
+      properties:
+        url:
+          type: string
+
+    BannerUploadEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/BannerUpload"
+
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    StatusEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/StatusResponse"
+
+    SeatingPreviewRow:
+      type: object
+      properties:
+        booking_id:
+          type: string
+          format: uuid
+        guest_name:
+          type: string
+        guest_email:
+          type: string
+        seat_code:
+          type: string
+        category_name:
+          type: string
+        category_code:
+          type: string
+          nullable: true
+        section:
+          type: string
+          nullable: true
+
+    SeatingPreviewListEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeatingPreviewRow"

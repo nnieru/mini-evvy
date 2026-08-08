@@ -1,0 +1,23 @@
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER}/mini-evvy-api:latest
+    env_file: .env
+    expose:
+      - "8080"
+    mem_limit: 256m
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/${GHCR_OWNER}/mini-evvy-worker:latest
+    env_file: .env
+    mem_limit: 128m
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/mini-evvy-frontend:latest
+    ports:
+      - "80:80"
+    mem_limit: 64m
+    restart: unless-stopped
+    depends_on:
+      - api
