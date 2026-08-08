@@ -328,7 +328,14 @@ At your domain registrar, point records to your VPS IP (e.g. `43.133.134.234`):
 | A | `www` | VPS IP |
 | A | `kuma` | VPS IP |
 
-Wait for DNS to propagate (`dig +short evvy.fun`). Open Lighthouse firewall **443** (and **80** for Let's Encrypt).
+Wait for DNS to propagate (`dig +short evvy.fun`). Open Lighthouse firewall **443** and **80** (443 is required for `https://` and for many browsers that default to HTTPS).
+
+**If the site “does not load”:** port **443** is often still closed in the Lighthouse console while **80** is open. Caddy may redirect to HTTPS; if 443 is blocked, the browser hangs. After deploying the Caddyfile with `auto_https disable_redirects`, `http://evvy.fun/mini-evvy/` works on port 80 even before 443 is open. Verify ports from your laptop:
+
+```bash
+nc -zv evvy.fun 80
+nc -zv evvy.fun 443   # must succeed for https://
+```
 
 ### TLS
 

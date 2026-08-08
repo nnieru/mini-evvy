@@ -1,3 +1,9 @@
+{
+	# Serve HTTP without redirecting to HTTPS while port 443 is blocked.
+	# HTTPS still works once Lighthouse firewall allows 443 and certs are issued.
+	auto_https disable_redirects
+}
+
 (mini_evvy) {
 	handle_path /mini-evvy/api/* {
 		reverse_proxy api:8080
@@ -11,7 +17,7 @@
 	}
 }
 
-# IP / plain HTTP until DNS is cut over
+# Direct IP access (http://43.x.x.x/mini-evvy/)
 :80 {
 	import mini_evvy
 }
