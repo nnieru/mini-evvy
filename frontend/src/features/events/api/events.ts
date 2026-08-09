@@ -52,3 +52,28 @@ export function approveSeating(eventId: string, token: string) {
 export function rejectSeating(eventId: string, token: string) {
   return apiPost<{ status: string }>(`/events/${eventId}/seating-reject`, {}, token)
 }
+
+export type ImportEventConfigRequest = {
+  source_event_id: string
+  include_categories: boolean
+  include_seats: boolean
+  include_email_template: boolean
+}
+
+export type ImportEventConfigResult = {
+  categories_created: number
+  seats_created: number
+  email_template_copied: boolean
+}
+
+export function importEventConfig(
+  targetEventId: string,
+  body: ImportEventConfigRequest,
+  token: string,
+) {
+  return apiPost<ImportEventConfigResult>(
+    `/events/${targetEventId}/import-config`,
+    body,
+    token,
+  )
+}

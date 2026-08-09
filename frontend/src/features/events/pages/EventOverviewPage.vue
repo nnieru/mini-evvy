@@ -16,6 +16,8 @@ import {
   useApproveSeatingMutation,
   useEventQuery,
   useFinalizeSeatingMutation,
+  useImportEventConfigMutation,
+  useMyEventsQuery,
   useRejectSeatingMutation,
   useSeatingPreviewQuery,
   useUpdateEventMutation,
@@ -36,7 +38,23 @@ const updateMutation = useUpdateEventMutation(eventId)
 const finalizeMutation = useFinalizeSeatingMutation(eventId)
 const approveMutation = useApproveSeatingMutation(eventId)
 const rejectMutation = useRejectSeatingMutation(eventId)
+const importMutation = useImportEventConfigMutation(eventId)
+const { data: myEvents } = useMyEventsQuery(isStaff)
 const { polling, currentJob, pollJob } = useJobPoller()
+
+const sourceEventId = ref('')
+const includeCategories = ref(true)
+const includeSeats = ref(true)
+const includeEmailTemplate = ref(true)
+
+const sourceEventOptions = computed(() =>
+  (myEvents.value ?? [])
+    .filter((item) => item.id !== eventId.value)
+    .map((item) => ({
+      label: `${item.name} (${item.organization_name})`,
+      value: item.id!,
+    })),
+)
 
 const seatingPhase = computed(() => event.value?.seating_phase ?? 'open')
 const showPreview = computed(
@@ -157,6 +175,35 @@ async function rejectSeating() {
     error.value = getErrorMessage(err)
   }
 }
+
+async function importConfig() {
+  if (!sourceEventId.value) return
+  error.value = ''
+  message.value = ''
+  try {
+    const result = await importMutation.mutateAsync({
+      source_event_id: sourceEventId.value,
+      include_categories: includeCategories.value,
+      include_seats: includeSeats.value,
+      include_email_template: includeEmailTemplate.value,
+    })
+    const parts: string[] = []
+    if (result.categories_created) {
+      parts.push(`${result.categories_created} categories`)
+    }
+    if (result.seats_created) {
+      parts.push(`${result.seats_created} seats`)
+    }
+    if (result.email_template_copied) {
+      parts.push('email template')
+    }
+    message.value = parts.length
+      ? `Imported ${parts.join(', ')}`
+      : 'Import completed'
+  } catch (err) {
+    error.value = getErrorMessage(err)
+  }
+}
 </script>
 
 <template>
@@ -228,6 +275,54 @@ async function rejectSeating() {
         <p v-else class="text-sm text-ink-muted">No jobs yet.</p>
       </Card>
     </div>
+
+    <Card v-if="isStaff" title="Import config">
+      <p class="mb-4 text-sm text-ink-muted">
+        Copy seat categories, seat layout, and/or invitation email from another event you manage.
+        Does not copy guests or bookings. Target must have no categories or seats when importing
+        layout.
+      </p>
+      <div class="grid gap-4 lg:grid-cols-2">
+        <Select
+          v-model="sourceEventId"
+          label="Source event"
+          placeholder="Select source event"
+          :options="sourceEventOptions"
+        />
+        <div class="space-y-3 text-sm text-ink">
+          <label class="flex items-center gap-2">
+            <input v-model="includeCategories" type="checkbox" class="rounded border-border" />
+            Seat categories
+          </label>
+          <label class="flex items-center gap-2">
+            <input
+              v-model="includeSeats"
+              type="checkbox"
+              class="rounded border-border"
+              :disabled="!includeCategories"
+            />
+            Seat layout
+          </label>
+          <label class="flex items-center gap-2">
+            <input
+              v-model="includeEmailTemplate"
+              type="checkbox"
+              class="rounded border-border"
+            />
+            Invitation email template
+          </label>
+        </div>
+      </div>
+      <div class="mt-4">
+        <Button
+          :loading="importMutation.isPending.value"
+          :disabled="!sourceEventId || (!includeCategories && !includeSeats && !includeEmailTemplate)"
+          @click="importConfig"
+        >
+          Import config
+        </Button>
+      </div>
+    </Card>
 
     <Card v-if="isStaff" title="Seat assignment">
       <p class="mb-4 text-sm text-ink-muted">

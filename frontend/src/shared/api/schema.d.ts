@@ -204,6 +204,28 @@ export interface paths {
         patch: operations["updateEvent"];
         trace?: never;
     };
+    "/events/{eventId}/import-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import event configuration from another event
+         * @description Owner/admin on both source and target events. Copies seat categories, seat layout,
+         *     and/or invitation email template. Does not copy guests, bookings, or barcodes.
+         *     Target must have no seat categories or seats when importing categories or seats.
+         */
+        post: operations["importEventConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events/{eventId}/finalize-seating": {
         parameters: {
             query?: never;
@@ -1285,6 +1307,22 @@ export interface components {
             /** Format: date-time */
             updated_at?: string | null;
         };
+        ImportEventConfigRequest: {
+            /** Format: uuid */
+            source_event_id: string;
+            include_categories: boolean;
+            include_seats: boolean;
+            include_email_template: boolean;
+        };
+        ImportEventConfigResult: {
+            categories_created?: number;
+            seats_created?: number;
+            email_template_copied?: boolean;
+        };
+        ImportEventConfigEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["ImportEventConfigResult"];
+        };
         InvitationEmailPreview: {
             subject?: string;
             html?: string;
@@ -1818,6 +1856,45 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["EventNotFound"];
+        };
+    };
+    importEventConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportEventConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportEventConfigEnvelope"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+            /** @description Target event already has seat categories or seats */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     finalizeSeating: {

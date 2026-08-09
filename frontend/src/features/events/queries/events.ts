@@ -6,12 +6,16 @@ import {
   finalizeSeating,
   getEvent,
   getSeatingPreview,
+  importEventConfig,
   listEvents,
   listMyEvents,
   rejectSeating,
   updateEvent,
+  type ImportEventConfigRequest,
 } from '../api/events'
 import { useAuthStore } from '@/features/auth/stores/auth'
+import { categoryKeys } from '@/features/categories/queries/categories'
+import { emailTemplateKeys } from '@/features/email-templates/queries/emailTemplate'
 import type { CreateEventRequest, UpdateEventRequest } from '@/shared/api/types'
 
 export const eventKeys = {
@@ -109,6 +113,21 @@ export function useRejectSeatingMutation(eventId: Ref<string>) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.detail(eventId.value) })
       queryClient.invalidateQueries({ queryKey: eventKeys.seatingPreview(eventId.value) })
+    },
+  })
+}
+
+export function useImportEventConfigMutation(eventId: Ref<string>) {
+  const auth = useAuthStore()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: ImportEventConfigRequest) =>
+      importEventConfig(eventId.value, body, auth.token!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: eventKeys.detail(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: categoryKeys.list(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: ['seats', eventId.value] })
+      queryClient.invalidateQueries({ queryKey: emailTemplateKeys.invitation(eventId.value) })
     },
   })
 }

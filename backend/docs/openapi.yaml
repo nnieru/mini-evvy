@@ -362,6 +362,47 @@ paths:
         "404":
           $ref: "#/components/responses/EventNotFound"
 
+  /events/{eventId}/import-config:
+    post:
+      tags: [Events]
+      summary: Import event configuration from another event
+      description: |
+        Owner/admin on both source and target events. Copies seat categories, seat layout,
+        and/or invitation email template. Does not copy guests, bookings, or barcodes.
+        Target must have no seat categories or seats when importing categories or seats.
+      operationId: importEventConfig
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportEventConfigRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportEventConfigEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+        "409":
+          description: Target event already has seat categories or seats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /events/{eventId}/finalize-seating:
     post:
       tags: [Jobs]
@@ -2676,6 +2717,42 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    ImportEventConfigRequest:
+      type: object
+      required:
+        - source_event_id
+        - include_categories
+        - include_seats
+        - include_email_template
+      properties:
+        source_event_id:
+          type: string
+          format: uuid
+        include_categories:
+          type: boolean
+        include_seats:
+          type: boolean
+        include_email_template:
+          type: boolean
+
+    ImportEventConfigResult:
+      type: object
+      properties:
+        categories_created:
+          type: integer
+        seats_created:
+          type: integer
+        email_template_copied:
+          type: boolean
+
+    ImportEventConfigEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/ImportEventConfigResult"
 
     InvitationEmailPreview:
       type: object

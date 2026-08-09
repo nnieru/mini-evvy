@@ -129,6 +129,15 @@ func main() {
 		cfg.S3PublicBaseURL,
 	)
 	emailTemplateHandler := handler.NewEmailTemplateHandler(emailTemplateService)
+	eventImportService := service.NewEventImportService(
+		pool,
+		eventRepo,
+		categoryRepo,
+		seatRepo,
+		emailTemplateRepo,
+		userRoleRepo,
+	)
+	eventImportHandler := handler.NewEventImportHandler(eventImportService)
 
 	r := chi.NewRouter()
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +170,7 @@ func main() {
 
 		r.Get("/events/{eventId}", eventHandler.Get)
 		r.Patch("/events/{eventId}", eventHandler.Update)
+		r.Post("/events/{eventId}/import-config", eventImportHandler.ImportConfig)
 		r.Post("/events/{eventId}/finalize-seating", eventJobsHandler.FinalizeSeating)
 		r.Get("/events/{eventId}/seating-preview", eventJobsHandler.GetSeatingPreview)
 		r.Post("/events/{eventId}/seating-approve", eventJobsHandler.ApproveSeating)
