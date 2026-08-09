@@ -172,6 +172,7 @@ func main() {
 		r.Patch("/events/{eventId}", eventHandler.Update)
 		r.Post("/events/{eventId}/import-config", eventImportHandler.ImportConfig)
 		r.Post("/events/{eventId}/finalize-seating", eventJobsHandler.FinalizeSeating)
+		r.Get("/events/{eventId}/seating-preview/export", eventJobsHandler.ExportSeatingPreview)
 		r.Get("/events/{eventId}/seating-preview", eventJobsHandler.GetSeatingPreview)
 		r.Post("/events/{eventId}/seating-approve", eventJobsHandler.ApproveSeating)
 		r.Post("/events/{eventId}/seating-reject", eventJobsHandler.RejectSeating)

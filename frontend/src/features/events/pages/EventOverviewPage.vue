@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import type { ColumnDef } from '@tanstack/vue-table'
 import PageHeader from '@/shared/ui/PageHeader.vue'
 import Card from '@/shared/ui/Card.vue'
 import Button from '@/shared/ui/Button.vue'
+import Input from '@/shared/ui/Input.vue'
 import Select from '@/shared/ui/Select.vue'
 import Badge from '@/shared/ui/Badge.vue'
 import LoadingSpinner from '@/shared/ui/LoadingSpinner.vue'
 import Alert from '@/shared/ui/Alert.vue'
+import DataTable from '@/shared/ui/DataTable.vue'
 import { getErrorMessage } from '@/shared/lib/errors'
 import { formatDate, titleCase } from '@/shared/lib/format'
+import { useDebouncedSearch } from '@/shared/composables/useDebouncedSearch'
 import { useJobPoller } from '@/shared/composables/useJobPoller'
 import { useEventOrgRole } from '@/features/organizations/composables/useEventOrgRole'
 import {
@@ -22,14 +26,23 @@ import {
   useSeatingPreviewQuery,
   useUpdateEventMutation,
 } from '../queries/events'
+import { exportSeatingPreview, type ListSeatingPreviewParams, type SeatingPreviewRow } from '../api/events'
 import { useJobsQuery } from '@/features/jobs/queries/jobs'
+import { useAuthStore } from '@/features/auth/stores/auth'
 
 const route = useRoute()
+const auth = useAuthStore()
 const eventId = computed(() => route.params.eventId as string)
 
 const status = ref('')
 const message = ref('')
 const error = ref('')
+const previewPage = ref(1)
+const previewPageSize = ref(20)
+const exportingPreview = ref(false)
+const { searchInput: previewSearchInput, searchQuery: previewSearchQuery } = useDebouncedSearch(() => {
+  previewPage.value = 1
+})
 
 const { data: event, isLoading, refetch: refetchEvent } = useEventQuery(eventId)
 const { isStaff } = useEventOrgRole(eventId)
@@ -64,14 +77,55 @@ const showPreview = computed(
 )
 const previewEnabled = computed(() => showPreview.value)
 
+const previewFilters = computed<ListSeatingPreviewParams>(() => ({
+  page: previewPage.value,
+  page_size: previewPageSize.value,
+  q: previewSearchQuery.value || undefined,
+}))
+
 const {
-  data: previewRows,
+  data: previewPageData,
   isLoading: previewLoading,
   isFetching: previewFetching,
   isError: previewError,
   error: previewFetchError,
   refetch: refetchPreview,
-} = useSeatingPreviewQuery(eventId, previewEnabled)
+} = useSeatingPreviewQuery(eventId, previewEnabled, previewFilters)
+
+const previewRows = computed(() => previewPageData.value?.items ?? [])
+const previewTotal = computed(() => previewPageData.value?.total ?? 0)
+
+const previewColumns = computed<ColumnDef<SeatingPreviewRow>[]>(() => [
+  {
+    accessorKey: 'guest_name',
+    header: 'Guest',
+    cell: ({ row }) => row.original.guest_name || '—',
+  },
+  {
+    accessorKey: 'guest_email',
+    header: 'Email',
+    cell: ({ row }) => row.original.guest_email || '—',
+  },
+  {
+    accessorKey: 'seat_code',
+    header: 'Seat',
+    cell: ({ row }) => row.original.seat_code || '—',
+  },
+  {
+    id: 'category',
+    header: 'Category',
+    cell: ({ row }) => {
+      const name = row.original.category_name || '—'
+      const code = row.original.category_code
+      return code ? `${name} (${code})` : name
+    },
+  },
+  {
+    id: 'section',
+    header: 'Section',
+    cell: ({ row }) => row.original.section || '—',
+  },
+])
 
 const approveActionsDisabled = computed(
   () => previewLoading.value || previewFetching.value || previewError.value,
@@ -91,7 +145,7 @@ const previewReady = computed(
   () => !previewLoading.value && !previewFetching.value && !previewError.value,
 )
 
-const previewEmpty = computed(() => previewReady.value && !(previewRows.value?.length ?? 0))
+const previewEmpty = computed(() => previewReady.value && previewTotal.value === 0)
 
 watch(
   finalizeJob,
@@ -175,6 +229,19 @@ async function rejectSeating() {
     await refetchEvent()
   } catch (err) {
     error.value = getErrorMessage(err)
+  }
+}
+
+async function downloadSeatingPreview() {
+  if (!auth.token) return
+  error.value = ''
+  exportingPreview.value = true
+  try {
+    await exportSeatingPreview(eventId.value, auth.token, previewSearchQuery.value || undefined)
+  } catch (err) {
+    error.value = getErrorMessage(err)
+  } finally {
+    exportingPreview.value = false
   }
 }
 
@@ -389,6 +456,23 @@ async function importConfig() {
     </Card>
 
     <Card v-if="isStaff && showPreview" title="Seating preview">
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <Input
+          v-model="previewSearchInput"
+          label="Search assignments"
+          placeholder="Guest name, email, or seat code"
+          autocomplete="off"
+          class="sm:flex-1"
+        />
+        <Button
+          variant="secondary"
+          :loading="exportingPreview"
+          @click="downloadSeatingPreview"
+        >
+          Export Excel
+        </Button>
+      </div>
+
       <LoadingSpinner v-if="previewLoading || previewFetching" />
       <Alert
         v-else-if="previewError"
@@ -410,36 +494,18 @@ async function importConfig() {
           (<code class="text-xs">go run ./cmd/worker</code>).
         </p>
       </Alert>
-      <div v-else-if="previewRows?.length" class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
-          <thead>
-            <tr class="border-b border-border text-ink-muted">
-              <th class="px-3 py-2 font-medium">Guest</th>
-              <th class="px-3 py-2 font-medium">Email</th>
-              <th class="px-3 py-2 font-medium">Seat</th>
-              <th class="px-3 py-2 font-medium">Category</th>
-              <th class="px-3 py-2 font-medium">Section</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in previewRows"
-              :key="row.booking_id"
-              class="border-b border-border/60"
-            >
-              <td class="px-3 py-2 font-medium">{{ row.guest_name }}</td>
-              <td class="px-3 py-2">{{ row.guest_email }}</td>
-              <td class="px-3 py-2">{{ row.seat_code }}</td>
-              <td class="px-3 py-2">
-                {{ row.category_name }}
-                <span v-if="row.category_code" class="text-ink-muted">({{ row.category_code }})</span>
-              </td>
-              <td class="px-3 py-2">{{ row.section || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-else class="text-sm text-ink-muted">No assignments yet.</p>
+      <DataTable
+        v-else
+        :columns="previewColumns"
+        :rows="previewRows"
+        :loading="previewLoading || previewFetching"
+        :page="previewPage"
+        :page-size="previewPageSize"
+        :total="previewTotal"
+        empty-message="No assignments yet."
+        @update:page="previewPage = $event"
+        @update:page-size="previewPageSize = $event"
+      />
     </Card>
   </div>
 </template>

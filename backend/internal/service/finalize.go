@@ -18,7 +18,9 @@ type eventPhaseStore interface {
 }
 
 type seatingPreviewStore interface {
-	ListSeatingPreviewByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.SeatingPreviewRow, error)
+	CountSeatingPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
+	ListSeatingPreviewPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.SeatingPreviewRow, error)
+	ListSeatingPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) ([]model.SeatingPreviewRow, error)
 	ListActiveByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.SeatBooking, error)
 	Update(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 }
@@ -93,32 +95,65 @@ func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID 
 	return job, nil
 }
 
-func (s *FinalizeService) GetSeatingPreview(ctx context.Context, actorID, eventID uuid.UUID) ([]model.SeatingPreviewRow, error) {
+func (s *FinalizeService) ensureSeatingPreviewAccess(ctx context.Context, actorID, eventID uuid.UUID) error {
 	event, err := s.events.GetByID(ctx, s.pool, eventID)
 	if errors.Is(err, repository.ErrNotFound) {
-		return nil, ErrEventNotFound
+		return ErrEventNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get event: %w", err)
+		return fmt.Errorf("get event: %w", err)
 	}
 
 	ok, err := s.memberships.IsMember(ctx, s.pool, actorID, event.OrganizationID)
 	if err != nil {
-		return nil, fmt.Errorf("check membership: %w", err)
+		return fmt.Errorf("check membership: %w", err)
 	}
 	if !ok {
-		return nil, ErrForbidden
+		return ErrForbidden
 	}
 
 	if event.SeatingPhase != model.SeatingPreview && event.SeatingPhase != model.SeatingApproved {
-		return nil, ErrSeatingNotPreview
+		return ErrSeatingNotPreview
 	}
 
-	rows, err := s.bookings.ListSeatingPreviewByEventID(ctx, s.pool, eventID)
+	return nil
+}
+
+func (s *FinalizeService) GetSeatingPreview(ctx context.Context, actorID, eventID uuid.UUID, page, pageSize int, q string) (*PagedResult[model.SeatingPreviewRow], error) {
+	if err := s.ensureSeatingPreviewAccess(ctx, actorID, eventID); err != nil {
+		return nil, err
+	}
+
+	pq := repository.PageQuery{Page: page, PageSize: pageSize, Q: q}
+	total, err := s.bookings.CountSeatingPreviewFiltered(ctx, s.pool, eventID, q)
+	if err != nil {
+		return nil, fmt.Errorf("count seating preview: %w", err)
+	}
+
+	rows, err := s.bookings.ListSeatingPreviewPaged(ctx, s.pool, eventID, pq)
 	if err != nil {
 		return nil, fmt.Errorf("list seating preview: %w", err)
 	}
-	return rows, nil
+
+	return &PagedResult[model.SeatingPreviewRow]{
+		Items:    rows,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+func (s *FinalizeService) ExportSeatingPreview(ctx context.Context, actorID, eventID uuid.UUID, q string) ([]byte, error) {
+	if err := s.ensureSeatingPreviewAccess(ctx, actorID, eventID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.bookings.ListSeatingPreviewFiltered(ctx, s.pool, eventID, q)
+	if err != nil {
+		return nil, fmt.Errorf("list seating preview: %w", err)
+	}
+
+	return buildSeatingPreviewXLSX(rows)
 }
 
 func (s *FinalizeService) ApproveSeating(ctx context.Context, actorID, eventID uuid.UUID) error {

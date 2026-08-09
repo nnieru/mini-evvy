@@ -371,30 +371,38 @@ func (r *BookingRepo) SoftDelete(ctx context.Context, db DBTX, b *model.SeatBook
 	return &booking, nil
 }
 
-func (r *BookingRepo) ListSeatingPreviewByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.SeatingPreviewRow, error) {
-	const query = `
-		SELECT
-			b.id,
-			g.name,
-			g.email,
-			s.code,
-			c.name,
-			c.code,
-			s.section
-		FROM seat_bookings b
-		JOIN guests g ON g.id = b.guest_id AND g.deleted_at IS NULL
-		JOIN seats s ON s.id = b.seat_id AND s.deleted_at IS NULL
-		JOIN seat_categories c ON c.id = b.category_id AND c.deleted_at IS NULL
-		WHERE b.event_id = $1 AND b.deleted_at IS NULL AND b.status <> 'cancelled'
-		ORDER BY s.code ASC
-	`
+const seatingPreviewSelect = `
+	SELECT
+		b.id,
+		g.name,
+		g.email,
+		s.code,
+		c.name,
+		c.code,
+		s.section
+`
 
-	rows, err := db.Query(ctx, query, eventID)
-	if err != nil {
-		return nil, fmt.Errorf("list seating preview: %w", err)
+const seatingPreviewBaseFrom = `
+	FROM seat_bookings b
+	JOIN guests g ON g.id = b.guest_id AND g.deleted_at IS NULL
+	JOIN seats s ON s.id = b.seat_id AND s.deleted_at IS NULL
+	JOIN seat_categories c ON c.id = b.category_id AND c.deleted_at IS NULL
+	WHERE b.event_id = $1 AND b.deleted_at IS NULL AND b.status <> 'cancelled'
+`
+
+func seatingPreviewSearchWhere(q string, argPos int) (string, []any) {
+	if strings.TrimSpace(q) == "" {
+		return "", nil
 	}
-	defer rows.Close()
+	pattern := SearchPattern(q)
+	clause := fmt.Sprintf(
+		` AND (g.name ILIKE $%d OR g.email ILIKE $%d OR s.code ILIKE $%d)`,
+		argPos, argPos, argPos,
+	)
+	return clause, []any{pattern}
+}
 
+func scanSeatingPreviewRows(rows pgx.Rows) ([]model.SeatingPreviewRow, error) {
 	var out []model.SeatingPreviewRow
 	for rows.Next() {
 		var row model.SeatingPreviewRow
@@ -415,6 +423,66 @@ func (r *BookingRepo) ListSeatingPreviewByEventID(ctx context.Context, db DBTX, 
 		return nil, fmt.Errorf("list seating preview rows: %w", err)
 	}
 	return out, nil
+}
+
+func (r *BookingRepo) CountSeatingPreviewFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q string) (int, error) {
+	args := []any{eventID}
+	query := `SELECT COUNT(*)` + seatingPreviewBaseFrom
+	if searchClause, searchArgs := seatingPreviewSearchWhere(q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
+
+	var total int
+	if err := db.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count seating preview: %w", err)
+	}
+	return total, nil
+}
+
+func (r *BookingRepo) ListSeatingPreviewPaged(ctx context.Context, db DBTX, eventID uuid.UUID, pq PageQuery) ([]model.SeatingPreviewRow, error) {
+	args := []any{eventID}
+	query := seatingPreviewSelect + seatingPreviewBaseFrom
+	if searchClause, searchArgs := seatingPreviewSearchWhere(pq.Q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
+
+	offset := (pq.Page - 1) * pq.PageSize
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	query += fmt.Sprintf(` ORDER BY s.code ASC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	args = append(args, pq.PageSize, offset)
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list seating preview paged: %w", err)
+	}
+	defer rows.Close()
+
+	return scanSeatingPreviewRows(rows)
+}
+
+func (r *BookingRepo) ListSeatingPreviewFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q string) ([]model.SeatingPreviewRow, error) {
+	args := []any{eventID}
+	query := seatingPreviewSelect + seatingPreviewBaseFrom
+	if searchClause, searchArgs := seatingPreviewSearchWhere(q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
+	query += ` ORDER BY s.code ASC`
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list seating preview filtered: %w", err)
+	}
+	defer rows.Close()
+
+	return scanSeatingPreviewRows(rows)
+}
+
+func (r *BookingRepo) ListSeatingPreviewByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.SeatingPreviewRow, error) {
+	return r.ListSeatingPreviewFiltered(ctx, db, eventID, "")
 }
 
 func (r *BookingRepo) ListActiveByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.SeatBooking, error) {

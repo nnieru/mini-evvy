@@ -12,6 +12,7 @@ import {
   rejectSeating,
   updateEvent,
   type ImportEventConfigRequest,
+  type ListSeatingPreviewParams,
 } from '../api/events'
 import { useAuthStore } from '@/features/auth/stores/auth'
 import { categoryKeys } from '@/features/categories/queries/categories'
@@ -22,7 +23,8 @@ export const eventKeys = {
   list: (orgId: string) => ['events', orgId] as const,
   mine: ['events', 'mine'] as const,
   detail: (eventId: string) => ['events', 'detail', eventId] as const,
-  seatingPreview: (eventId: string) => ['events', 'seating-preview', eventId] as const,
+  seatingPreview: (eventId: string, params?: ListSeatingPreviewParams) =>
+    ['events', 'seating-preview', eventId, params ?? null] as const,
 }
 
 export function useEventsQuery(orgId: Ref<string>) {
@@ -83,11 +85,15 @@ export function useFinalizeSeatingMutation(eventId: Ref<string>) {
   })
 }
 
-export function useSeatingPreviewQuery(eventId: Ref<string>, enabled: Ref<boolean>) {
+export function useSeatingPreviewQuery(
+  eventId: Ref<string>,
+  enabled: Ref<boolean>,
+  filters?: Ref<ListSeatingPreviewParams>,
+) {
   const auth = useAuthStore()
   return useQuery({
-    queryKey: computed(() => eventKeys.seatingPreview(eventId.value)),
-    queryFn: () => getSeatingPreview(eventId.value, auth.token!),
+    queryKey: computed(() => eventKeys.seatingPreview(eventId.value, filters?.value)),
+    queryFn: () => getSeatingPreview(eventId.value, auth.token!, filters?.value),
     enabled: computed(() => Boolean(auth.token && eventId.value && enabled.value)),
     retry: false,
   })

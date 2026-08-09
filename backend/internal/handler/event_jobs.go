@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -59,13 +60,41 @@ func (h *EventJobsHandler) GetSeatingPreview(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rows, err := h.finalize.GetSeatingPreview(r.Context(), userID, eventID)
+	page := httpx.ParsePageParams(r)
+
+	result, err := h.finalize.GetSeatingPreview(r.Context(), userID, eventID, page.Page, page.PageSize, page.Q)
 	if err != nil {
 		h.writeSeatingErr(w, err)
 		return
 	}
 
-	httpx.OK(w, http.StatusOK, dto.NewSeatingPreviewListDTO(rows))
+	httpx.OK(w, http.StatusOK, dto.NewPaginatedSeatingPreviewListDTO(result.Items, result.Total, result.Page, result.PageSize))
+}
+
+func (h *EventJobsHandler) ExportSeatingPreview(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Fail(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing user credentials")
+		return
+	}
+
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventId"))
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid event ID")
+		return
+	}
+
+	q := httpx.ParsePageParams(r).Q
+	data, err := h.finalize.ExportSeatingPreview(r.Context(), userID, eventID, q)
+	if err != nil {
+		h.writeSeatingErr(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="seating-preview-%s.xlsx"`, eventID))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 func (h *EventJobsHandler) ApproveSeating(w http.ResponseWriter, r *http.Request) {

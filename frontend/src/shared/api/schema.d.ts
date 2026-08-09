@@ -268,6 +268,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/events/{eventId}/seating-preview/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export seating preview to Excel
+         * @description Org member. Available when seating_phase is `preview` or `approved`. Exports all rows matching optional `q` (ignores pagination).
+         */
+        get: operations["exportSeatingPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events/{eventId}/seating-approve": {
         parameters: {
             query?: never;
@@ -1403,6 +1423,16 @@ export interface components {
             success?: boolean;
             data?: components["schemas"]["SeatingPreviewRow"][];
         };
+        PaginatedSeatingPreviewList: {
+            items: components["schemas"]["SeatingPreviewRow"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedSeatingPreviewListEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["PaginatedSeatingPreviewList"];
+        };
     };
     responses: {
         /** @description Bad request */
@@ -1977,7 +2007,12 @@ export interface operations {
     };
     getSeatingPreview: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
+            };
             header?: never;
             path: {
                 eventId: components["parameters"]["eventId"];
@@ -1992,7 +2027,35 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SeatingPreviewListEnvelope"];
+                    "application/json": components["schemas"]["PaginatedSeatingPreviewListEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    exportSeatingPreview: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
+            };
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Excel workbook */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
             401: components["responses"]["Unauthorized"];

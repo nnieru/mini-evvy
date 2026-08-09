@@ -1,4 +1,6 @@
 import { apiGet, apiPatch, apiPost } from '@/shared/api/client'
+import { ApiError } from '@/shared/lib/errors'
+import { appendListPageParams, type ListPageParams, type PaginatedList } from '@/shared/api/pagination'
 import type {
   CreateEventRequest,
   Event,
@@ -6,6 +8,8 @@ import type {
   MyEvent,
   UpdateEventRequest,
 } from '@/shared/api/types'
+
+const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
 export function listEvents(orgId: string, token: string) {
   return apiGet<Event[]>(`/orgs/${orgId}/events`, token)
@@ -41,8 +45,58 @@ export type SeatingPreviewRow = {
   section?: string | null
 }
 
-export function getSeatingPreview(eventId: string, token: string) {
-  return apiGet<SeatingPreviewRow[]>(`/events/${eventId}/seating-preview`, token)
+export type ListSeatingPreviewParams = ListPageParams
+
+export function getSeatingPreview(
+  eventId: string,
+  token: string,
+  params?: ListSeatingPreviewParams,
+) {
+  const search = new URLSearchParams()
+  appendListPageParams(search, params)
+  const query = search.toString()
+  return apiGet<PaginatedList<SeatingPreviewRow>>(
+    `/events/${eventId}/seating-preview${query ? `?${query}` : ''}`,
+    token,
+  )
+}
+
+export async function exportSeatingPreview(
+  eventId: string,
+  token: string,
+  q?: string,
+) {
+  const search = new URLSearchParams()
+  if (q) search.set('q', q)
+  const query = search.toString()
+
+  const response = await fetch(
+    `${baseUrl}/events/${eventId}/seating-preview/export${query ? `?${query}` : ''}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  )
+
+  if (!response.ok) {
+    let message = response.statusText
+    try {
+      const payload = (await response.json()) as { error?: { message?: string } }
+      message = payload.error?.message ?? message
+    } catch {
+      // ignore non-json error bodies
+    }
+    throw new ApiError(response.status, 'EXPORT_FAILED', message)
+  }
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `seating-preview-${eventId}.xlsx`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 export function approveSeating(eventId: string, token: string) {

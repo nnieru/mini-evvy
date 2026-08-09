@@ -31,3 +31,7 @@ func NewSeatingPreviewListDTO(rows []model.SeatingPreviewRow) []SeatingPreviewRo
 	}
 	return out
 }
+
+func NewPaginatedSeatingPreviewListDTO(rows []model.SeatingPreviewRow, total, page, pageSize int) PaginatedList[SeatingPreviewRowDTO] {
+	return NewPaginatedList(NewSeatingPreviewListDTO(rows), total, page, pageSize)
+}
