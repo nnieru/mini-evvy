@@ -13,6 +13,8 @@ type Config struct {
 	Port             string
 	DatabaseURL      string
 	JWTSecret        string
+	MailProvider     string
+	PlunkAPIKey      string
 	ResendAPIKey     string
 	EmailFrom        string
 	S3Endpoint       string
@@ -32,6 +34,8 @@ func Load() Config {
 		Port:              getEnv("PORT", "8080"),
 		DatabaseURL:       getEnv("DATABASE_URL", ""),
 		JWTSecret:         getEnv("JWT_SECRET", "some-long-random-dev-string"),
+		MailProvider:      getEnv("MAIL_PROVIDER", "plunk"),
+		PlunkAPIKey:       getEnv("PLUNK_API_KEY", ""),
 		ResendAPIKey:      getEnv("RESEND_API_KEY", ""),
 		EmailFrom:         getEnv("EMAIL_FROM", "onboarding@resend.dev"),
 		S3Endpoint:        getEnv("S3_ENDPOINT", ""),
@@ -40,6 +44,23 @@ func Load() Config {
 		S3SecretAccessKey: getEnv("S3_SECRET_ACCESS_KEY", ""),
 		S3Bucket:          getEnv("S3_BUCKET", ""),
 		S3PublicBaseURL:   getEnv("S3_PUBLIC_BASE_URL", ""),
+	}
+}
+
+func (c Config) MailAPIKey() (string, error) {
+	switch strings.ToLower(strings.TrimSpace(c.MailProvider)) {
+	case "plunk":
+		if strings.TrimSpace(c.PlunkAPIKey) == "" {
+			return "", fmt.Errorf("PLUNK_API_KEY required when MAIL_PROVIDER=plunk")
+		}
+		return c.PlunkAPIKey, nil
+	case "resend":
+		if strings.TrimSpace(c.ResendAPIKey) == "" {
+			return "", fmt.Errorf("RESEND_API_KEY required when MAIL_PROVIDER=resend")
+		}
+		return c.ResendAPIKey, nil
+	default:
+		return "", fmt.Errorf("unknown MAIL_PROVIDER: %s", c.MailProvider)
 	}
 }
 

@@ -97,7 +97,14 @@ func main() {
 	attendanceHandler := handler.NewAttendanceHandler(attendanceService)
 
 	emailTemplateRepo := repository.NewEventEmailTemplateRepo(pool)
-	mailerClient := mailer.NewResendMailer(cfg.ResendAPIKey, cfg.EmailFrom)
+	mailAPIKey, err := cfg.MailAPIKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	mailerClient, err := mailer.New(cfg.MailProvider, mailAPIKey, cfg.EmailFrom)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if err := cfg.ValidateS3(); err != nil {
 		log.Fatal(err)
 	}

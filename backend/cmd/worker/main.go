@@ -57,7 +57,14 @@ func main() {
 		userRoleRepo,
 		jobService,
 	)
-	mailerClient := mailer.NewResendMailer(cfg.ResendAPIKey, cfg.EmailFrom)
+	mailAPIKey, err := cfg.MailAPIKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	mailerClient, err := mailer.New(cfg.MailProvider, mailAPIKey, cfg.EmailFrom)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	processor := worker.NewProcessor(
 		pool,
