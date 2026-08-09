@@ -56,6 +56,8 @@ function applyTemplate(data: InvitationEmailTemplate) {
     show_qr: data.show_qr,
     show_seat_code: data.show_seat_code,
     show_ticket_code: data.show_ticket_code,
+    qr_label: data.qr_label ?? '',
+    ticket_code_label: data.ticket_code_label ?? '',
     banner_enabled: data.banner_enabled,
     banner_image_url: data.banner_image_url ?? '',
     banner_alt: data.banner_alt,
@@ -245,15 +247,19 @@ async function onBannerFileChange(event: Event) {
           />
         </div>
 
-        <Input v-model="form.headline" label="Headline" placeholder="Optional title under banner" />
-        <Input v-model="form.greeting" label="Greeting" placeholder="Hi {{guest_name}}," />
+        <Input v-model="form.headline" label="Headline" placeholder="Optional title (plain text, accent color)" />
+        <Input
+          v-model="form.greeting"
+          label="Greeting"
+          placeholder="Optional — leave empty to omit"
+        />
         <div class="space-y-1.5">
           <label class="text-sm font-medium text-ink">Body (HTML)</label>
           <textarea
             v-model="form.body_html"
             rows="4"
             class="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-            placeholder="Optional extra copy. Allowed: &lt;p&gt;, &lt;strong&gt;, &lt;br&gt;, &lt;a&gt;"
+            placeholder="Optional extra copy. Allowed: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;br&gt;, &lt;ul&gt;, &lt;ol&gt;, &lt;li&gt;, &lt;a&gt;"
           />
           <div class="flex flex-wrap gap-2">
             <button
@@ -282,6 +288,19 @@ async function onBannerFileChange(event: Event) {
             Show ticket code
           </label>
         </div>
+
+        <Input
+          v-model="form.qr_label"
+          label="QR label"
+          placeholder="Leave empty for no label above QR"
+          :disabled="!form.show_qr"
+        />
+        <Input
+          v-model="form.ticket_code_label"
+          label="Ticket code label"
+          placeholder="Leave empty for no label above code"
+          :disabled="!form.show_ticket_code"
+        />
 
         <Input v-model="form.footer_text" label="Footer" />
         <Input v-model="form.primary_color" label="Accent color" type="color" class="h-10 w-24" />

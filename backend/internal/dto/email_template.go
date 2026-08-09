@@ -16,6 +16,8 @@ type InvitationEmailTemplateDTO struct {
 	ShowQR         bool    `json:"show_qr"`
 	ShowSeatCode   bool    `json:"show_seat_code"`
 	ShowTicketCode bool    `json:"show_ticket_code"`
+	QRLabel        string  `json:"qr_label"`
+	TicketCodeLabel string `json:"ticket_code_label"`
 	BannerEnabled  bool    `json:"banner_enabled"`
 	BannerImageURL *string `json:"banner_image_url"`
 	BannerAlt      string  `json:"banner_alt"`
@@ -44,10 +46,12 @@ func NewInvitationEmailTemplateDTO(view *service.EmailTemplateView) InvitationEm
 		Greeting:       view.Config.Greeting,
 		BodyHTML:       view.Config.BodyHTML,
 		FooterText:     view.Config.FooterText,
-		ShowQR:         view.Config.ShowQR,
-		ShowSeatCode:   view.Config.ShowSeatCode,
-		ShowTicketCode: view.Config.ShowTicketCode,
-		BannerEnabled:  view.Config.BannerEnabled,
+		ShowQR:          view.Config.ShowQR,
+		ShowSeatCode:    view.Config.ShowSeatCode,
+		ShowTicketCode:  view.Config.ShowTicketCode,
+		QRLabel:         view.Config.QRLabel,
+		TicketCodeLabel: view.Config.TicketCodeLabel,
+		BannerEnabled:   view.Config.BannerEnabled,
 		BannerImageURL: view.Config.BannerImageURL,
 		BannerAlt:      view.Config.BannerAlt,
 		PrimaryColor:   view.Config.PrimaryColor,
@@ -63,10 +67,12 @@ func InvitationConfigFromDTO(d InvitationEmailTemplateDTO) invitation.Config {
 		Greeting:       d.Greeting,
 		BodyHTML:       d.BodyHTML,
 		FooterText:     d.FooterText,
-		ShowQR:         d.ShowQR,
-		ShowSeatCode:   d.ShowSeatCode,
-		ShowTicketCode: d.ShowTicketCode,
-		BannerEnabled:  d.BannerEnabled,
+		ShowQR:          d.ShowQR,
+		ShowSeatCode:    d.ShowSeatCode,
+		ShowTicketCode:  d.ShowTicketCode,
+		QRLabel:         d.QRLabel,
+		TicketCodeLabel: d.TicketCodeLabel,
+		BannerEnabled:   d.BannerEnabled,
 		BannerImageURL: d.BannerImageURL,
 		BannerAlt:      d.BannerAlt,
 		PrimaryColor:   d.PrimaryColor,

@@ -33,6 +33,8 @@ func Render(cfg Config, ctx Context, preview bool) (RenderResult, error) {
 	headline := applyMergeTags(cfg.Headline, ctx)
 	bodyHTML := applyMergeTags(cfg.BodyHTML, ctx)
 	footer := applyMergeTags(cfg.FooterText, ctx)
+	qrLabel := strings.TrimSpace(applyMergeTags(cfg.QRLabel, ctx))
+	ticketLabel := strings.TrimSpace(applyMergeTags(cfg.TicketCodeLabel, ctx))
 	bannerAlt := applyMergeTags(cfg.BannerAlt, ctx)
 	if strings.TrimSpace(bannerAlt) == "" {
 		bannerAlt = html.EscapeString(ctx.EventName)
@@ -57,15 +59,15 @@ func Render(cfg Config, ctx Context, preview bool) (RenderResult, error) {
 
 	if strings.TrimSpace(headline) != "" {
 		parts = append(parts, fmt.Sprintf(
-			`<tr><td style="padding:20px 24px 8px;background:%s;color:#ffffff;font-size:20px;font-weight:bold;">%s</td></tr>`,
+			`<tr><td style="padding:24px 24px 0;color:%s;font-size:20px;font-weight:bold;line-height:1.4;">%s</td></tr>`,
 			html.EscapeString(cfg.PrimaryColor),
 			headline,
 		))
 	}
 
 	contentStyle := "padding:24px;color:#111827;font-size:16px;line-height:1.5;"
-	if strings.TrimSpace(headline) == "" {
-		contentStyle = "padding:24px;color:#111827;font-size:16px;line-height:1.5;"
+	if strings.TrimSpace(headline) != "" {
+		contentStyle = "padding:8px 24px 24px;color:#111827;font-size:16px;line-height:1.5;"
 	}
 
 	parts = append(parts, fmt.Sprintf(`<tr><td style="%s">`, contentStyle))
@@ -91,13 +93,19 @@ func Render(cfg Config, ctx Context, preview bool) (RenderResult, error) {
 		}
 		if preview {
 			dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)
+			if qrLabel != "" {
+				parts = append(parts, fmt.Sprintf(`<p style="margin:16px 0 8px;">%s</p>`, qrLabel))
+			}
 			parts = append(parts, fmt.Sprintf(
-				`<p style="margin:16px 0 8px;">Scan this code at the door:</p><p style="margin:0 0 16px;"><img src="%s" alt="Ticket QR" width="200" height="200" style="display:block;" /></p>`,
+				`<p style="margin:0 0 16px;"><img src="%s" alt="Ticket QR" width="200" height="200" style="display:block;" /></p>`,
 				dataURI,
 			))
 		} else {
+			if qrLabel != "" {
+				parts = append(parts, fmt.Sprintf(`<p style="margin:16px 0 8px;">%s</p>`, qrLabel))
+			}
 			parts = append(parts, fmt.Sprintf(
-				`<p style="margin:16px 0 8px;">Scan this code at the door:</p><p style="margin:0 0 16px;"><img src="cid:%s" alt="Ticket QR" width="200" height="200" style="display:block;" /></p>`,
+				`<p style="margin:0 0 16px;"><img src="cid:%s" alt="Ticket QR" width="200" height="200" style="display:block;" /></p>`,
 				QRContentID,
 			))
 			attachments = append(attachments, mailer.Attachment{
@@ -110,7 +118,9 @@ func Render(cfg Config, ctx Context, preview bool) (RenderResult, error) {
 	}
 
 	if cfg.ShowTicketCode && ctx.TicketCode != "" {
-		parts = append(parts, `<p style="margin:16px 0 8px;">Ticket code:</p>`)
+		if ticketLabel != "" {
+			parts = append(parts, fmt.Sprintf(`<p style="margin:16px 0 8px;">%s</p>`, ticketLabel))
+		}
 		parts = append(parts, fmt.Sprintf(
 			`<pre style="margin:0 0 16px;padding:12px;background:#f3f4f6;border-radius:6px;font-size:14px;overflow-x:auto;">%s</pre>`,
 			html.EscapeString(ctx.TicketCode),
@@ -136,7 +146,11 @@ func Render(cfg Config, ctx Context, preview bool) (RenderResult, error) {
 }
 
 func preheaderText(cfg Config, ctx Context) string {
-	greeting := strings.TrimSpace(applyMergeTags(cfg.Greeting, ctx))
+	headline := strings.TrimSpace(stripHTML(applyMergeTags(cfg.Headline, ctx)))
+	if headline != "" {
+		return headline
+	}
+	greeting := strings.TrimSpace(stripHTML(applyMergeTags(cfg.Greeting, ctx)))
 	if greeting != "" {
 		return greeting
 	}
@@ -150,6 +164,10 @@ func RenderPlainText(cfg Config, ctx Context) string {
 	cfg = NormalizeConfig(cfg.Sanitized())
 	var lines []string
 
+	headline := strings.TrimSpace(stripHTML(applyMergeTags(cfg.Headline, ctx)))
+	if headline != "" {
+		lines = append(lines, headline)
+	}
 	greeting := strings.TrimSpace(stripHTML(applyMergeTags(cfg.Greeting, ctx)))
 	if greeting != "" {
 		lines = append(lines, greeting)
@@ -162,7 +180,11 @@ func RenderPlainText(cfg Config, ctx Context) string {
 		lines = append(lines, fmt.Sprintf("Your seat for %s is %s.", ctx.EventName, ctx.SeatCode))
 	}
 	if cfg.ShowTicketCode && ctx.TicketCode != "" {
-		lines = append(lines, "Ticket code:", ctx.TicketCode)
+		ticketLabel := strings.TrimSpace(stripHTML(applyMergeTags(cfg.TicketCodeLabel, ctx)))
+		if ticketLabel != "" {
+			lines = append(lines, ticketLabel)
+		}
+		lines = append(lines, ctx.TicketCode)
 	}
 	footer := strings.TrimSpace(stripHTML(applyMergeTags(cfg.FooterText, ctx)))
 	if footer != "" {

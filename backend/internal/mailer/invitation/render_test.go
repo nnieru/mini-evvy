@@ -87,3 +87,66 @@ func TestApplyMergeTagsStripsUnknown(t *testing.T) {
 		t.Fatalf("expected guest name in output: %q", got)
 	}
 }
+
+func TestRenderEmptyGreetingOmitted(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Greeting = ""
+	ctx := SampleContext()
+
+	result, err := Render(cfg, ctx, true)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if strings.Contains(result.HTML, "Hi Ada Lovelace") {
+		t.Fatalf("expected empty greeting to be omitted, got %q", result.HTML)
+	}
+}
+
+func TestRenderEmptyQRAndTicketLabelsOmitted(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.QRLabel = ""
+	cfg.TicketCodeLabel = ""
+	ctx := SampleContext()
+
+	result, err := Render(cfg, ctx, false)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if strings.Contains(result.HTML, "Scan this code at the door:") {
+		t.Fatalf("expected qr label omitted")
+	}
+	if strings.Contains(result.HTML, "Ticket code:") {
+		t.Fatalf("expected ticket label omitted")
+	}
+	if !strings.Contains(result.HTML, `src="cid:ticket-barcode"`) {
+		t.Fatalf("expected qr image")
+	}
+	if !strings.Contains(result.HTML, "EVVY-deadbeef1234") {
+		t.Fatalf("expected ticket code")
+	}
+}
+
+func TestSanitizeBodyHTMLAllowsListsAndEmphasis(t *testing.T) {
+	raw := `<p>Hello</p><em>italic</em><ul><li>one</li></ul><ol><li>two</li></ol>`
+	got := sanitizeBodyHTML(raw)
+	if got != raw {
+		t.Fatalf("sanitizeBodyHTML() = %q, want %q", got, raw)
+	}
+}
+
+func TestRenderHeadlinePlainTextNotColoredBar(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Headline = "THE MAGIC IS CALLING YOU"
+	ctx := SampleContext()
+
+	result, err := Render(cfg, ctx, true)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if strings.Contains(result.HTML, "background:#1a1a2e") {
+		t.Fatalf("headline should not use colored background bar")
+	}
+	if !strings.Contains(result.HTML, "THE MAGIC IS CALLING YOU") {
+		t.Fatalf("expected headline in html")
+	}
+}

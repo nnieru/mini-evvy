@@ -13,7 +13,7 @@ const QRContentID = "ticket-barcode"
 var (
 	hexColorRe    = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	unknownTagRe  = regexp.MustCompile(`\{\{[^}]+\}\}`)
-	allowedTagRe  = regexp.MustCompile(`</?(?:p|strong|br|a)(?:\s[^>]*)?>`)
+	allowedTagRe  = regexp.MustCompile(`</?(?:p|strong|em|br|ul|ol|li|a)(?:\s[^>]*)?>`)
 )
 
 type Config struct {
@@ -25,6 +25,8 @@ type Config struct {
 	ShowQR         bool    `json:"show_qr"`
 	ShowSeatCode   bool    `json:"show_seat_code"`
 	ShowTicketCode bool    `json:"show_ticket_code"`
+	QRLabel        string  `json:"qr_label"`
+	TicketCodeLabel string `json:"ticket_code_label"`
 	BannerEnabled  bool    `json:"banner_enabled"`
 	BannerImageURL *string `json:"banner_image_url"`
 	BannerAlt      string  `json:"banner_alt"`
@@ -38,10 +40,12 @@ func DefaultConfig() Config {
 		Greeting:       "Hi {{guest_name}},",
 		BodyHTML:       "",
 		FooterText:     "Present this code at the door.",
-		ShowQR:         true,
-		ShowSeatCode:   true,
-		ShowTicketCode: true,
-		BannerEnabled:  false,
+		ShowQR:          true,
+		ShowSeatCode:    true,
+		ShowTicketCode:  true,
+		QRLabel:         "Scan this code at the door:",
+		TicketCodeLabel: "Ticket code:",
+		BannerEnabled:   false,
 		BannerImageURL: nil,
 		BannerAlt:      "",
 		PrimaryColor:   "#1a1a2e",
@@ -63,9 +67,6 @@ func NormalizeConfig(cfg Config) Config {
 	def := DefaultConfig()
 	if strings.TrimSpace(cfg.Subject) == "" {
 		cfg.Subject = def.Subject
-	}
-	if strings.TrimSpace(cfg.Greeting) == "" {
-		cfg.Greeting = def.Greeting
 	}
 	if strings.TrimSpace(cfg.FooterText) == "" {
 		cfg.FooterText = def.FooterText
@@ -98,6 +99,12 @@ func (c Config) Validate() error {
 	}
 	if len(c.BannerAlt) > 200 {
 		return fmt.Errorf("banner alt must be at most 200 characters")
+	}
+	if len(c.QRLabel) > 200 {
+		return fmt.Errorf("qr_label must be at most 200 characters")
+	}
+	if len(c.TicketCodeLabel) > 200 {
+		return fmt.Errorf("ticket_code_label must be at most 200 characters")
 	}
 	if !hexColorRe.MatchString(c.PrimaryColor) {
 		return fmt.Errorf("primary_color must be a hex color like #1a1a2e")

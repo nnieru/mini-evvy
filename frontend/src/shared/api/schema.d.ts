@@ -306,6 +306,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/events/{eventId}/email-template/invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get invitation email template
+         * @description Owner/admin. Returns saved config or system defaults.
+         */
+        get: operations["getInvitationEmailTemplate"];
+        /**
+         * Save invitation email template
+         * @description Owner/admin.
+         */
+        put: operations["upsertInvitationEmailTemplate"];
+        post?: never;
+        /**
+         * Reset invitation email template
+         * @description Owner/admin. Deletes custom template so system default is used.
+         */
+        delete: operations["resetInvitationEmailTemplate"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events/{eventId}/email-template/invitation/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview invitation email
+         * @description Owner/admin. Optional body uses draft config; otherwise saved/default.
+         */
+        post: operations["previewInvitationEmailTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events/{eventId}/email-template/invitation/test-send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send test invitation email
+         * @description Owner/admin. Sends sample email to current user (rate limited).
+         */
+        post: operations["testSendInvitationEmailTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events/{eventId}/email-template/invitation/banner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload invitation banner image
+         * @description Owner/admin. Stores image on server; returns public URL for banner_image_url.
+         */
+        post: operations["uploadInvitationEmailBanner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{jobId}": {
         parameters: {
             query?: never;
@@ -533,7 +621,7 @@ export interface paths {
         head?: never;
         /**
          * Update booking status
-         * @description Org member. Transitions: pending→not_paid|paid|cancelled; not_paid→paid|cancelled; paid→cancelled.
+         * @description Org member. Transitions: pending→not_paid|paid|cancelled; not_paid→paid|cancelled; paid→not_paid|cancelled (not_paid frees paid hold to reserved).
          *     paid sets seat occupied; cancelled releases seat to available.
          */
         patch: operations["updateBooking"];
@@ -1177,6 +1265,44 @@ export interface components {
         JobIdEnvelope: {
             success?: boolean;
             data?: components["schemas"]["JobIdResponse"];
+        };
+        InvitationEmailTemplate: {
+            subject?: string;
+            headline?: string;
+            greeting?: string;
+            body_html?: string;
+            footer_text?: string;
+            show_qr?: boolean;
+            show_seat_code?: boolean;
+            show_ticket_code?: boolean;
+            qr_label?: string;
+            ticket_code_label?: string;
+            banner_enabled?: boolean;
+            banner_image_url?: string | null;
+            banner_alt?: string;
+            primary_color?: string;
+            is_default?: boolean;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        InvitationEmailPreview: {
+            subject?: string;
+            html?: string;
+        };
+        InvitationEmailTemplateEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["InvitationEmailTemplate"];
+        };
+        InvitationEmailPreviewEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["InvitationEmailPreview"];
+        };
+        BannerUpload: {
+            url?: string;
+        };
+        BannerUploadEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["BannerUpload"];
         };
         StatusResponse: {
             status: string;
@@ -1823,6 +1949,182 @@ export interface operations {
                     "application/json": components["schemas"]["JobListEnvelope"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    getInvitationEmailTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationEmailTemplateEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    upsertInvitationEmailTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationEmailTemplate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationEmailTemplateEnvelope"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    resetInvitationEmailTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    previewInvitationEmailTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InvitationEmailTemplate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationEmailPreviewEnvelope"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    testSendInvitationEmailTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InvitationEmailTemplate"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    uploadInvitationEmailBanner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BannerUploadEnvelope"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["EventNotFound"];

@@ -9,6 +9,8 @@ export type InvitationEmailTemplate = {
   show_qr: boolean
   show_seat_code: boolean
   show_ticket_code: boolean
+  qr_label: string
+  ticket_code_label: string
   banner_enabled: boolean
   banner_image_url: string
   banner_alt: string
@@ -103,6 +105,8 @@ export function defaultInvitationForm(): InvitationEmailTemplate {
     show_qr: true,
     show_seat_code: true,
     show_ticket_code: true,
+    qr_label: 'Scan this code at the door:',
+    ticket_code_label: 'Ticket code:',
     banner_enabled: false,
     banner_image_url: '',
     banner_alt: '',
@@ -127,6 +131,8 @@ export function templatePayload(form: InvitationEmailTemplate): InvitationEmailT
     show_qr: form.show_qr,
     show_seat_code: form.show_seat_code,
     show_ticket_code: form.show_ticket_code,
+    qr_label: form.qr_label,
+    ticket_code_label: form.ticket_code_label,
     banner_enabled: form.banner_enabled,
     banner_image_url: form.banner_image_url.trim() ? form.banner_image_url.trim() : null,
     banner_alt: form.banner_alt,

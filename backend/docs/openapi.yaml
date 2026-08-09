@@ -2657,6 +2657,10 @@ components:
           type: boolean
         show_ticket_code:
           type: boolean
+        qr_label:
+          type: string
+        ticket_code_label:
+          type: string
         banner_enabled:
           type: boolean
         banner_image_url:
