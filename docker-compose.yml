@@ -18,6 +18,12 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    volumes:
+      # Persist ACME account + issued certs across recreate/redeploy.
+      # Without this, every frontend recreate requests new Let's Encrypt certs
+      # and hits the 5-certs-per-hostname / 168h rate limit.
+      - caddy_data:/data
+      - caddy_config:/config
     mem_limit: 64m
     restart: unless-stopped
     depends_on:
@@ -33,4 +39,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  caddy_data:
+  caddy_config:
   uptime-kuma:
