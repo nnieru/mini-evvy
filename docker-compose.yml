@@ -25,6 +25,9 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     mem_limit: 64m
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
     restart: unless-stopped
     depends_on:
       - api
@@ -42,3 +45,5 @@ volumes:
   caddy_data:
   caddy_config:
   uptime-kuma:
+  caddy_data:
+  caddy_config:
