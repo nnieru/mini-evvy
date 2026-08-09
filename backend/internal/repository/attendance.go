@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -55,6 +56,101 @@ func (r *AttendanceRepo) Create(ctx context.Context, db DBTX, a *model.Attendanc
 	}
 
 	return &log, nil
+}
+
+const attendanceListSelectCols = `
+	a.id, a.guest_id, a.event_id, a.seat_id, a.status, a.message,
+	a.created_by, a.updated_by, a.created_at, a.updated_at, a.deleted_at
+`
+
+const attendanceListBaseFrom = `
+	FROM attendance_logs a
+	LEFT JOIN guests g ON g.id = a.guest_id AND g.deleted_at IS NULL
+	LEFT JOIN seats s ON s.id = a.seat_id AND s.deleted_at IS NULL
+	LEFT JOIN seat_bookings b ON b.guest_id = a.guest_id AND b.seat_id = a.seat_id
+		AND b.event_id = a.event_id AND b.deleted_at IS NULL
+	WHERE a.event_id = $1 AND a.deleted_at IS NULL
+`
+
+func attendanceSearchWhere(q string, argPos int) (string, []any) {
+	if strings.TrimSpace(q) == "" {
+		return "", nil
+	}
+	pattern := SearchPattern(q)
+	clause := fmt.Sprintf(
+		` AND (g.name ILIKE $%d OR s.code ILIKE $%d OR COALESCE(a.message, '') ILIKE $%d OR COALESCE(b.barcode, '') ILIKE $%d)`,
+		argPos, argPos, argPos, argPos,
+	)
+	return clause, []any{pattern}
+}
+
+func scanAttendanceLog(row interface{ Scan(dest ...any) error }) (model.AttendanceLog, error) {
+	var log model.AttendanceLog
+	err := row.Scan(
+		&log.ID,
+		&log.GuestID,
+		&log.EventID,
+		&log.SeatID,
+		&log.Status,
+		&log.Message,
+		&log.CreatedBy,
+		&log.UpdatedBy,
+		&log.CreatedAt,
+		&log.UpdatedAt,
+		&log.DeletedAt,
+	)
+	return log, err
+}
+
+func (r *AttendanceRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q string) (int, error) {
+	args := []any{eventID}
+	query := `SELECT COUNT(*)` + attendanceListBaseFrom
+	if searchClause, searchArgs := attendanceSearchWhere(q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
+
+	var total int
+	if err := db.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count attendance by event id: %w", err)
+	}
+	return total, nil
+}
+
+func (r *AttendanceRepo) ListByEventIDPaged(ctx context.Context, db DBTX, eventID uuid.UUID, pq PageQuery) ([]model.AttendanceLog, error) {
+	args := []any{eventID}
+	query := `SELECT ` + attendanceListSelectCols + attendanceListBaseFrom
+	if searchClause, searchArgs := attendanceSearchWhere(pq.Q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
+
+	offset := (pq.Page - 1) * pq.PageSize
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	query += fmt.Sprintf(` ORDER BY a.created_at DESC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	args = append(args, pq.PageSize, offset)
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list attendance by event id paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.AttendanceLog
+	for rows.Next() {
+		log, err := scanAttendanceLog(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan attendance log: %w", err)
+		}
+		out = append(out, log)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list attendance paged rows: %w", err)
+	}
+
+	return out, nil
 }
 
 func (r *AttendanceRepo) ListByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.AttendanceLog, error) {

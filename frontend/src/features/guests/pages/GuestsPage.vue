@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import type { ColumnDef } from '@tanstack/vue-table'
 import PageHeader from '@/shared/ui/PageHeader.vue'
-import Card from '@/shared/ui/Card.vue'
 import Button from '@/shared/ui/Button.vue'
 import Input from '@/shared/ui/Input.vue'
 import Select from '@/shared/ui/Select.vue'
 import Modal from '@/shared/ui/Modal.vue'
-import LoadingSpinner from '@/shared/ui/LoadingSpinner.vue'
-import EmptyState from '@/shared/ui/EmptyState.vue'
+import DataTable from '@/shared/ui/DataTable.vue'
 import Alert from '@/shared/ui/Alert.vue'
 import { getErrorMessage } from '@/shared/lib/errors'
 import { formatDateTime } from '@/shared/lib/format'
+import { useDebouncedSearch } from '@/shared/composables/useDebouncedSearch'
 import { useCategoriesQuery } from '@/features/categories/queries/categories'
 import { useEventOrgRole } from '@/features/organizations/composables/useEventOrgRole'
 import {
@@ -19,7 +19,8 @@ import {
   useGuestsQuery,
   useImportGuestsMutation,
 } from '../queries/guests'
-import type { GuestImportResult } from '../api/guests'
+import type { GuestImportResult, ListGuestsParams } from '../api/guests'
+import type { Guest } from '@/shared/api/types'
 
 const route = useRoute()
 const eventId = computed(() => route.params.eventId as string)
@@ -30,6 +31,11 @@ const error = ref('')
 const message = ref('')
 const importResult = ref<GuestImportResult | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const page = ref(1)
+const pageSize = ref(20)
+const { searchInput, searchQuery } = useDebouncedSearch(() => {
+  page.value = 1
+})
 
 const form = reactive({
   name: '',
@@ -38,15 +44,47 @@ const form = reactive({
   ticket_count: '1',
 })
 
-const { data: guests, isLoading } = useGuestsQuery(eventId)
+const listFilters = computed<ListGuestsParams>(() => ({
+  page: page.value,
+  page_size: pageSize.value,
+  q: searchQuery.value || undefined,
+}))
+
+const { data: guestsPage, isLoading } = useGuestsQuery(eventId, listFilters)
 const { data: categories } = useCategoriesQuery(eventId)
 const { isStaff } = useEventOrgRole(eventId)
 const createMutation = useCreateGuestMutation(eventId)
 const importMutation = useImportGuestsMutation(eventId)
 
+const guestRows = computed(() => guestsPage.value?.items ?? [])
+const guestTotal = computed(() => guestsPage.value?.total ?? 0)
+
 const categoryOptions = computed(
   () => categories.value?.map((c) => ({ label: c.name ?? 'Category', value: c.id! })) ?? [],
 )
+
+const guestColumns = computed<ColumnDef<Guest>[]>(() => [
+  {
+    accessorKey: 'name',
+    header: 'Name',
+    cell: ({ row }) => row.original.name || '—',
+  },
+  {
+    accessorKey: 'email',
+    header: 'Email',
+    cell: ({ row }) => row.original.email || '—',
+  },
+  {
+    accessorKey: 'ticket_count',
+    header: 'Tickets',
+  },
+  {
+    id: 'paid',
+    header: 'Paid',
+    cell: ({ row }) =>
+      row.original.paid_date ? formatDateTime(row.original.paid_date) : 'Not yet',
+  },
+])
 
 async function createGuest() {
   error.value = ''
@@ -138,19 +176,24 @@ async function onImportFile(event: Event) {
       </ul>
     </div>
 
-    <LoadingSpinner v-if="isLoading" />
-    <EmptyState v-else-if="!guests?.length" title="No guests yet" description="Add guests before creating bookings." />
+    <Input
+      v-model="searchInput"
+      label="Search guests"
+      placeholder="Name or email"
+      autocomplete="off"
+    />
 
-    <div v-else class="grid gap-4 sm:grid-cols-2">
-      <Card v-for="guest in guests" :key="guest.id">
-        <h3 class="font-display text-lg font-semibold text-ink">{{ guest.name }}</h3>
-        <p class="text-sm text-ink-muted">{{ guest.email }}</p>
-        <p class="mt-3 text-sm">Tickets: {{ guest.ticket_count }}</p>
-        <p class="text-sm text-ink-muted">
-          Paid: {{ guest.paid_date ? formatDateTime(guest.paid_date) : 'Not yet' }}
-        </p>
-      </Card>
-    </div>
+    <DataTable
+      :columns="guestColumns"
+      :rows="guestRows"
+      :loading="isLoading"
+      :page="page"
+      :page-size="pageSize"
+      :total="guestTotal"
+      empty-message="No guests yet. Add guests before creating bookings."
+      @update:page="page = $event"
+      @update:page-size="pageSize = $event"
+    />
 
     <Modal :open="showCreate" title="Add guest" @close="showCreate = false">
       <form class="space-y-4" @submit.prevent="createGuest">

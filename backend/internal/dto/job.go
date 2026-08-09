@@ -36,3 +36,7 @@ func NewJobListDTO(list []model.Job) []JobResponseDTO {
 	}
 	return out
 }
+
+func NewPaginatedJobListDTO(list []model.Job, total, page, pageSize int) PaginatedList[JobResponseDTO] {
+	return NewPaginatedList(NewJobListDTO(list), total, page, pageSize)
+}

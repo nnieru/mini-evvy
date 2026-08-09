@@ -1,9 +1,17 @@
 import { apiGet, apiPatch, apiPost } from '@/shared/api/client'
 import { ApiError } from '@/shared/lib/errors'
+import {
+  appendListPageParams,
+  fetchAllPages,
+  type ListPageParams,
+  type PaginatedList,
+} from '@/shared/api/pagination'
 import type { CreateGuestRequest, Guest, UpdateGuestRequest } from '@/shared/api/types'
 import type { ErrorEnvelope, SuccessEnvelope } from '@/shared/api/types'
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api'
+
+export type ListGuestsParams = ListPageParams
 
 export type GuestImportResult = {
   created: number
@@ -12,8 +20,18 @@ export type GuestImportResult = {
   errors: { row: number; message: string }[]
 }
 
-export function listGuests(eventId: string, token: string) {
-  return apiGet<Guest[]>(`/events/${eventId}/guests`, token)
+export function listGuests(eventId: string, token: string, params?: ListGuestsParams) {
+  const search = new URLSearchParams()
+  appendListPageParams(search, params)
+  const query = search.toString()
+  return apiGet<PaginatedList<Guest>>(
+    `/events/${eventId}/guests${query ? `?${query}` : ''}`,
+    token,
+  )
+}
+
+export function listGuestsAll(eventId: string, token: string) {
+  return fetchAllPages((page, page_size) => listGuests(eventId, token, { page, page_size }))
 }
 
 export function getGuest(guestId: string, token: string) {

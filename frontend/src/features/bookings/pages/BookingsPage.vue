@@ -13,9 +13,10 @@ import EmptyState from '@/shared/ui/EmptyState.vue'
 import Alert from '@/shared/ui/Alert.vue'
 import DataTable from '@/shared/ui/DataTable.vue'
 import { getErrorMessage } from '@/shared/lib/errors'
+import { useDebouncedSearch } from '@/shared/composables/useDebouncedSearch'
 import { useJobPoller } from '@/shared/composables/useJobPoller'
 import { useCategoriesQuery } from '@/features/categories/queries/categories'
-import { useSeatsQuery } from '@/features/seats/queries/seats'
+import { useAllSeatsQuery } from '@/features/seats/queries/seats'
 import SeatGrid from '../components/SeatGrid.vue'
 import { buildCategoryColorMap } from '../lib/categoryColors'
 import {
@@ -61,17 +62,21 @@ type PaymentFilter = 'all' | 'paid' | 'unpaid'
 const paymentFilter = ref<PaymentFilter>('all')
 const page = ref(1)
 const pageSize = ref(20)
+const { searchInput, searchQuery } = useDebouncedSearch(() => {
+  page.value = 1
+})
 
 const listFilters = computed<ListBookingsParams>(() => ({
   page: page.value,
   page_size: pageSize.value,
   payment_status: paymentFilter.value,
+  q: searchQuery.value || undefined,
 }))
 
 const { data: bookingsPage, isLoading: bookingsLoading } = useBookingsQuery(eventId, listFilters)
 const { data: event } = useEventQuery(eventId)
 const { data: categories, isLoading: categoriesLoading } = useCategoriesQuery(eventId)
-const { data: allSeats, isLoading: seatsLoading } = useSeatsQuery(eventId)
+const { data: allSeats, isLoading: seatsLoading } = useAllSeatsQuery(eventId)
 
 const batchMutation = useCreateBookingsBatchMutation(eventId)
 const updateMutation = useUpdateBookingMutation(eventId)
@@ -472,6 +477,13 @@ async function submitPayment() {
           {{ option.label }}
         </Button>
       </div>
+
+      <Input
+        v-model="searchInput"
+        label="Search bookings"
+        placeholder="Guest, seat, or barcode"
+        autocomplete="off"
+      />
 
       <DataTable
         :columns="bookingColumns"

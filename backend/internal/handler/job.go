@@ -33,13 +33,15 @@ func (h *JobHandler) ListByEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := h.jobs.ListByEvent(r.Context(), userID, eventID)
+	page := httpx.ParsePageParams(r)
+
+	list, err := h.jobs.ListByEventPaged(r.Context(), userID, eventID, page.Page, page.PageSize, page.Q)
 	if err != nil {
 		h.writeJobErr(w, err)
 		return
 	}
 
-	httpx.OK(w, http.StatusOK, dto.NewJobListDTO(list))
+	httpx.OK(w, http.StatusOK, dto.NewPaginatedJobListDTO(list.Items, list.Total, list.Page, list.PageSize))
 }
 
 func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {

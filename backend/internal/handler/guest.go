@@ -109,13 +109,15 @@ func (h *GuestHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := h.guests.ListByEvent(r.Context(), userID, eventID)
+	page := httpx.ParsePageParams(r)
+
+	list, err := h.guests.ListByEventPaged(r.Context(), userID, eventID, page.Page, page.PageSize, page.Q)
 	if err != nil {
 		h.writeGuestErr(w, err)
 		return
 	}
 
-	httpx.OK(w, http.StatusOK, dto.NewGuestListDTO(list))
+	httpx.OK(w, http.StatusOK, dto.NewPaginatedGuestListDTO(list.Items, list.Total, list.Page, list.PageSize))
 }
 
 func (h *GuestHandler) Get(w http.ResponseWriter, r *http.Request) {

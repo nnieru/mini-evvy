@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -94,6 +95,89 @@ func (r *SeatRepo) GetByID(ctx context.Context, db DBTX, id uuid.UUID) (*model.S
 	}
 
 	return &seat, nil
+}
+
+type SeatListQuery struct {
+	Status     *model.SeatStatus
+	CategoryID *uuid.UUID
+	PageQuery
+}
+
+func (r *SeatRepo) seatListWhere(eventID uuid.UUID, q SeatListQuery) (string, []any) {
+	where := ` FROM seats WHERE event_id = $1 AND deleted_at IS NULL`
+	args := []any{eventID}
+	argPos := 2
+
+	if q.Status != nil {
+		where += fmt.Sprintf(` AND status = $%d`, argPos)
+		args = append(args, *q.Status)
+		argPos = len(args) + 1
+	}
+	if q.CategoryID != nil {
+		where += fmt.Sprintf(` AND category_id = $%d`, argPos)
+		args = append(args, *q.CategoryID)
+		argPos = len(args) + 1
+	}
+	if strings.TrimSpace(q.Q) != "" {
+		where += fmt.Sprintf(` AND (code ILIKE $%d OR COALESCE(section, '') ILIKE $%d)`, argPos, argPos)
+		args = append(args, SearchPattern(q.Q))
+	}
+
+	return where, args
+}
+
+func (r *SeatRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q SeatListQuery) (int, error) {
+	where, args := r.seatListWhere(eventID, q)
+	var total int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*)`+where, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count seats by event id: %w", err)
+	}
+	return total, nil
+}
+
+func (r *SeatRepo) ListByEventIDPaged(ctx context.Context, db DBTX, eventID uuid.UUID, q SeatListQuery) ([]model.Seat, error) {
+	where, args := r.seatListWhere(eventID, q)
+	offset := (q.Page - 1) * q.PageSize
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	query := `SELECT id, code, section, "row", col, status, description,
+		event_id, category_id, created_at, updated_at, deleted_at` + where +
+		fmt.Sprintf(` ORDER BY section NULLS LAST, "row" NULLS LAST, col NULLS LAST, code ASC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	args = append(args, q.PageSize, offset)
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list seats by event id paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.Seat
+	for rows.Next() {
+		var seat model.Seat
+		if err := rows.Scan(
+			&seat.ID,
+			&seat.Code,
+			&seat.Section,
+			&seat.Row,
+			&seat.Col,
+			&seat.Status,
+			&seat.Description,
+			&seat.EventID,
+			&seat.CategoryID,
+			&seat.CreatedAt,
+			&seat.UpdatedAt,
+			&seat.DeletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan seat: %w", err)
+		}
+		out = append(out, seat)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list seats paged rows: %w", err)
+	}
+
+	return out, nil
 }
 
 func (r *SeatRepo) ListByEventID(ctx context.Context, db DBTX, eventID uuid.UUID, status *model.SeatStatus, categoryID *uuid.UUID) ([]model.Seat, error) {

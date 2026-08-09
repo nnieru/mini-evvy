@@ -12,6 +12,7 @@ export type ListBookingsParams = {
   page?: number
   page_size?: number
   payment_status?: 'all' | 'paid' | 'unpaid'
+  q?: string
 }
 
 export function listBookings(eventId: string, params: ListBookingsParams, token: string) {
@@ -19,6 +20,7 @@ export function listBookings(eventId: string, params: ListBookingsParams, token:
   if (params.page) search.set('page', String(params.page))
   if (params.page_size) search.set('page_size', String(params.page_size))
   if (params.payment_status) search.set('payment_status', params.payment_status)
+  if (params.q) search.set('q', params.q)
   const query = search.toString()
   return apiGet<PaginatedBookingList>(
     `/events/${eventId}/bookings${query ? `?${query}` : ''}`,

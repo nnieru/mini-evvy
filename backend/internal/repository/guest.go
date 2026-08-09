@@ -169,6 +169,64 @@ func (r *GuestRepo) ListByEventID(ctx context.Context, db DBTX, eventID uuid.UUI
 	return out, nil
 }
 
+func (r *GuestRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q string) (int, error) {
+	args := []any{eventID}
+	where := ` FROM guests WHERE event_id = $1 AND deleted_at IS NULL`
+	where, args = appendILikeOr(where, []string{"name", "email"}, q, args)
+
+	var total int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*)`+where, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count guests by event id: %w", err)
+	}
+	return total, nil
+}
+
+func (r *GuestRepo) ListByEventIDPaged(ctx context.Context, db DBTX, eventID uuid.UUID, pq PageQuery) ([]model.Guest, error) {
+	args := []any{eventID}
+	where := ` FROM guests WHERE event_id = $1 AND deleted_at IS NULL`
+	where, args = appendILikeOr(where, []string{"name", "email"}, pq.Q, args)
+
+	offset := (pq.Page - 1) * pq.PageSize
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	query := `SELECT id, event_id, category_id, name, email, paid_date, ticket_count,
+		created_at, updated_at, deleted_at` + where +
+		fmt.Sprintf(` ORDER BY created_at ASC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	args = append(args, pq.PageSize, offset)
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list guests by event id paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.Guest
+	for rows.Next() {
+		var guest model.Guest
+		if err := rows.Scan(
+			&guest.ID,
+			&guest.EventID,
+			&guest.CategoryID,
+			&guest.Name,
+			&guest.Email,
+			&guest.PaidDate,
+			&guest.TicketCount,
+			&guest.CreatedAt,
+			&guest.UpdatedAt,
+			&guest.DeletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan guest: %w", err)
+		}
+		out = append(out, guest)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list guests paged rows: %w", err)
+	}
+
+	return out, nil
+}
+
 func (r *GuestRepo) ListUnbookedByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.Guest, error) {
 	const query = `
 		SELECT g.id, g.event_id, g.category_id, g.name, g.email, g.paid_date, g.ticket_count,

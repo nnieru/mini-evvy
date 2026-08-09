@@ -21,6 +21,8 @@ type guestStore interface {
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.Guest, error)
 	GetByEventNameEmailCategory(ctx context.Context, db repository.DBTX, eventID, categoryID uuid.UUID, name, email string) (*model.Guest, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.Guest, error)
+	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
+	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.Guest, error)
 	Update(ctx context.Context, db repository.DBTX, g *model.Guest) (*model.Guest, error)
 }
 
@@ -159,6 +161,42 @@ func (s *GuestService) ListByEvent(ctx context.Context, actorID, eventID uuid.UU
 		return nil, fmt.Errorf("list guests: %w", err)
 	}
 	return list, nil
+}
+
+func (s *GuestService) ListByEventPaged(ctx context.Context, actorID, eventID uuid.UUID, page, pageSize int, q string) (*PagedResult[model.Guest], error) {
+	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, ErrEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get event: %w", err)
+	}
+
+	ok, err := s.memberships.IsMember(ctx, s.pool, actorID, event.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("check membership: %w", err)
+	}
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	pq := repository.PageQuery{Page: page, PageSize: pageSize, Q: q}
+	total, err := s.guests.CountByEventIDFiltered(ctx, s.pool, eventID, q)
+	if err != nil {
+		return nil, fmt.Errorf("count guests: %w", err)
+	}
+
+	list, err := s.guests.ListByEventIDPaged(ctx, s.pool, eventID, pq)
+	if err != nil {
+		return nil, fmt.Errorf("list guests: %w", err)
+	}
+
+	return &PagedResult[model.Guest]{
+		Items:    list,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 func (s *GuestService) Get(ctx context.Context, actorID, guestID uuid.UUID) (*model.Guest, error) {

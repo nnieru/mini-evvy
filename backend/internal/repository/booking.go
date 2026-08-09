@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -159,8 +160,21 @@ func (r *BookingRepo) ListByEventID(ctx context.Context, db DBTX, eventID uuid.U
 
 type BookingListQuery struct {
 	PaymentStatus string
+	Q             string
 	Page          int
 	PageSize      int
+}
+
+func bookingSearchWhere(q string, argPos int) (string, []any) {
+	if strings.TrimSpace(q) == "" {
+		return "", nil
+	}
+	pattern := SearchPattern(q)
+	clause := fmt.Sprintf(
+		` AND (g.name ILIKE $%d OR g.email ILIKE $%d OR s.code ILIKE $%d OR COALESCE(b.barcode, '') ILIKE $%d)`,
+		argPos, argPos, argPos, argPos,
+	)
+	return clause, []any{pattern}
 }
 
 func bookingPaymentStatusClause(paymentStatus string) string {
@@ -206,11 +220,16 @@ func scanBookingListRow(row interface{ Scan(dest ...any) error }) (model.Booking
 	return item, err
 }
 
-func (r *BookingRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, paymentStatus string) (int, error) {
-	query := `SELECT COUNT(*)` + bookingListBaseFrom + bookingPaymentStatusClause(paymentStatus)
+func (r *BookingRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q BookingListQuery) (int, error) {
+	args := []any{eventID}
+	query := `SELECT COUNT(*)` + bookingListBaseFrom + bookingPaymentStatusClause(q.PaymentStatus)
+	if searchClause, searchArgs := bookingSearchWhere(q.Q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
 
 	var total int
-	if err := db.QueryRow(ctx, query, eventID).Scan(&total); err != nil {
+	if err := db.QueryRow(ctx, query, args...).Scan(&total); err != nil {
 		return 0, fmt.Errorf("count bookings by event id: %w", err)
 	}
 	return total, nil
@@ -218,11 +237,19 @@ func (r *BookingRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, event
 
 func (r *BookingRepo) ListByEventIDPaged(ctx context.Context, db DBTX, eventID uuid.UUID, q BookingListQuery) ([]model.BookingListRow, error) {
 	offset := (q.Page - 1) * q.PageSize
+	args := []any{eventID}
 	query := `SELECT ` + bookingListSelectCols + `, g.name, g.email, s.code` +
-		bookingListBaseFrom + bookingPaymentStatusClause(q.PaymentStatus) +
-		` ORDER BY b.created_at DESC LIMIT $2 OFFSET $3`
+		bookingListBaseFrom + bookingPaymentStatusClause(q.PaymentStatus)
+	if searchClause, searchArgs := bookingSearchWhere(q.Q, len(args)+1); searchClause != "" {
+		query += searchClause
+		args = append(args, searchArgs...)
+	}
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	query += fmt.Sprintf(` ORDER BY b.created_at DESC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	args = append(args, q.PageSize, offset)
 
-	rows, err := db.Query(ctx, query, eventID, q.PageSize, offset)
+	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list bookings by event id paged: %w", err)
 	}

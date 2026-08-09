@@ -43,3 +43,7 @@ func NewSeatListDTO(list []model.Seat) []SeatResponseDTO {
 	}
 	return out
 }
+
+func NewPaginatedSeatListDTO(list []model.Seat, total, page, pageSize int) PaginatedList[SeatResponseDTO] {
+	return NewPaginatedList(NewSeatListDTO(list), total, page, pageSize)
+}

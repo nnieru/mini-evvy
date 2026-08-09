@@ -30,7 +30,7 @@ type bookingStore interface {
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.SeatBooking, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.SeatBooking, error)
 	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.BookingListQuery) ([]model.BookingListRow, error)
-	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, paymentStatus string) (int, error)
+	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.BookingListQuery) (int, error)
 	ListExpiredUnpaid(ctx context.Context, db repository.DBTX, olderThan time.Time) ([]model.SeatBooking, error)
 	Update(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 	SoftDelete(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
@@ -439,6 +439,7 @@ func (s *BookingService) ListByEvent(ctx context.Context, actorID, eventID uuid.
 
 type ListBookingsFilter struct {
 	PaymentStatus string
+	Q             string
 	Page          int
 	PageSize      int
 }
@@ -487,13 +488,17 @@ func (s *BookingService) ListByEventPaged(ctx context.Context, actorID, eventID 
 		return nil, ErrForbidden
 	}
 
-	total, err := s.bookings.CountByEventIDFiltered(ctx, s.pool, eventID, filter.PaymentStatus)
+	total, err := s.bookings.CountByEventIDFiltered(ctx, s.pool, eventID, repository.BookingListQuery{
+		PaymentStatus: filter.PaymentStatus,
+		Q:             filter.Q,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("count bookings: %w", err)
 	}
 
 	items, err := s.bookings.ListByEventIDPaged(ctx, s.pool, eventID, repository.BookingListQuery{
 		PaymentStatus: filter.PaymentStatus,
+		Q:             filter.Q,
 		Page:          filter.Page,
 		PageSize:      filter.PageSize,
 	})

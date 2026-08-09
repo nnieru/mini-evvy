@@ -1102,10 +1102,34 @@ export interface components {
             payment_label?: "paid" | "unpaid";
         };
         PaginatedBookingList: {
-            items?: components["schemas"]["BookingListItem"][];
-            total?: number;
-            page?: number;
-            page_size?: number;
+            items: components["schemas"]["BookingListItem"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedGuestList: {
+            items: components["schemas"]["Guest"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedSeatList: {
+            items: components["schemas"]["Seat"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedAttendanceList: {
+            items: components["schemas"]["Attendance"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedJobList: {
+            items: components["schemas"]["Job"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         Payment: {
             /** Format: uuid */
@@ -1259,6 +1283,22 @@ export interface components {
         PaginatedBookingListEnvelope: {
             success?: boolean;
             data?: components["schemas"]["PaginatedBookingList"];
+        };
+        PaginatedGuestListEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["PaginatedGuestList"];
+        };
+        PaginatedSeatListEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["PaginatedSeatList"];
+        };
+        PaginatedAttendanceListEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["PaginatedAttendanceList"];
+        };
+        PaginatedJobListEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["PaginatedJobList"];
         };
         PaymentEnvelope: {
             success?: boolean;
@@ -1474,6 +1514,10 @@ export interface components {
         bookingId: string;
         attendanceId: string;
         jobId: string;
+        page: number;
+        pageSize: number;
+        /** @description Case-insensitive search across list-specific fields. */
+        searchQ: string;
     };
     requestBodies: never;
     headers: never;
@@ -2008,7 +2052,12 @@ export interface operations {
     };
     listEventJobs: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
+            };
             header?: never;
             path: {
                 eventId: components["parameters"]["eventId"];
@@ -2023,7 +2072,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobListEnvelope"];
+                    "application/json": components["schemas"]["PaginatedJobListEnvelope"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -2347,6 +2396,10 @@ export interface operations {
                 status?: "available" | "reserved" | "occupied" | "blocked";
                 /** @description Filter seats by ticket category. */
                 category_id?: string;
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
             };
             header?: never;
             path: {
@@ -2362,7 +2415,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SeatListEnvelope"];
+                    "application/json": components["schemas"]["PaginatedSeatListEnvelope"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -2455,7 +2508,12 @@ export interface operations {
     };
     listGuests: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
+            };
             header?: never;
             path: {
                 eventId: components["parameters"]["eventId"];
@@ -2470,7 +2528,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GuestListEnvelope"];
+                    "application/json": components["schemas"]["PaginatedGuestListEnvelope"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -2608,6 +2666,8 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 payment_status?: "all" | "paid" | "unpaid";
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
             };
             header?: never;
             path: {
@@ -2888,7 +2948,12 @@ export interface operations {
     };
     listAttendance: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
+            };
             header?: never;
             path: {
                 eventId: components["parameters"]["eventId"];
@@ -2903,7 +2968,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AttendanceListEnvelope"];
+                    "application/json": components["schemas"]["PaginatedAttendanceListEnvelope"];
                 };
             };
             401: components["responses"]["Unauthorized"];

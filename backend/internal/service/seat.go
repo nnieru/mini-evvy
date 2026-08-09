@@ -20,6 +20,8 @@ type seatStore interface {
 	CreateBatch(ctx context.Context, db repository.DBTX, seats []model.Seat) ([]model.Seat, error)
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.Seat, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID, status *model.SeatStatus, categoryID *uuid.UUID) ([]model.Seat, error)
+	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.SeatListQuery) (int, error)
+	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.SeatListQuery) ([]model.Seat, error)
 	Update(ctx context.Context, db repository.DBTX, s *model.Seat) (*model.Seat, error)
 }
 
@@ -202,6 +204,67 @@ func (s *SeatService) ListByEvent(ctx context.Context, actorID, eventID uuid.UUI
 		return nil, fmt.Errorf("list seats: %w", err)
 	}
 	return list, nil
+}
+
+func (s *SeatService) ListByEventPaged(
+	ctx context.Context,
+	actorID, eventID uuid.UUID,
+	statusFilter *model.SeatStatus,
+	categoryID *uuid.UUID,
+	page, pageSize int,
+	q string,
+) (*PagedResult[model.Seat], error) {
+	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, ErrEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get event: %w", err)
+	}
+
+	ok, err := s.memberships.IsMember(ctx, s.pool, actorID, event.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("check membership: %w", err)
+	}
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	if statusFilter != nil && !isValidSeatStatus(*statusFilter) {
+		return nil, ErrInvalidSeatStatus
+	}
+	if categoryID != nil {
+		if err := s.validateCategoryForEvent(ctx, s.pool, eventID, *categoryID); err != nil {
+			return nil, err
+		}
+	}
+
+	listQuery := repository.SeatListQuery{
+		Status:     statusFilter,
+		CategoryID: categoryID,
+		PageQuery: repository.PageQuery{
+			Page:     page,
+			PageSize: pageSize,
+			Q:        q,
+		},
+	}
+
+	total, err := s.seats.CountByEventIDFiltered(ctx, s.pool, eventID, listQuery)
+	if err != nil {
+		return nil, fmt.Errorf("count seats: %w", err)
+	}
+
+	list, err := s.seats.ListByEventIDPaged(ctx, s.pool, eventID, listQuery)
+	if err != nil {
+		return nil, fmt.Errorf("list seats: %w", err)
+	}
+
+	return &PagedResult[model.Seat]{
+		Items:    list,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 func (s *SeatService) Get(ctx context.Context, actorID, seatID uuid.UUID) (*model.Seat, error) {

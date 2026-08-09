@@ -23,6 +23,8 @@ var (
 type jobQueryStore interface {
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.Job, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.Job, error)
+	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
+	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.Job, error)
 }
 
 type jobEnqueuer interface {
@@ -97,6 +99,42 @@ func (s *JobQueryService) ListByEvent(ctx context.Context, actorID, eventID uuid
 		return nil, fmt.Errorf("list jobs: %w", err)
 	}
 	return list, nil
+}
+
+func (s *JobQueryService) ListByEventPaged(ctx context.Context, actorID, eventID uuid.UUID, page, pageSize int, q string) (*PagedResult[model.Job], error) {
+	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, ErrEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get event: %w", err)
+	}
+
+	ok, err := s.memberships.HasRole(ctx, s.pool, actorID, event.OrganizationID, model.RoleOwner, model.RoleAdmin)
+	if err != nil {
+		return nil, fmt.Errorf("check role: %w", err)
+	}
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	pq := repository.PageQuery{Page: page, PageSize: pageSize, Q: q}
+	total, err := s.jobs.CountByEventIDFiltered(ctx, s.pool, eventID, q)
+	if err != nil {
+		return nil, fmt.Errorf("count jobs: %w", err)
+	}
+
+	list, err := s.jobs.ListByEventIDPaged(ctx, s.pool, eventID, pq)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs: %w", err)
+	}
+
+	return &PagedResult[model.Job]{
+		Items:    list,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 func (s *JobQueryService) Get(ctx context.Context, actorID, jobID uuid.UUID) (*model.Job, error) {

@@ -1,12 +1,21 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/shared/api/client'
+import { appendListPageParams, type ListPageParams, type PaginatedList } from '@/shared/api/pagination'
 import type {
   Attendance,
   CreateAttendanceRequest,
   UpdateAttendanceRequest,
 } from '@/shared/api/types'
 
-export function listAttendance(eventId: string, token: string) {
-  return apiGet<Attendance[]>(`/events/${eventId}/attendance`, token)
+export type ListAttendanceParams = ListPageParams
+
+export function listAttendance(eventId: string, token: string, params?: ListAttendanceParams) {
+  const search = new URLSearchParams()
+  appendListPageParams(search, params)
+  const query = search.toString()
+  return apiGet<PaginatedList<Attendance>>(
+    `/events/${eventId}/attendance${query ? `?${query}` : ''}`,
+    token,
+  )
 }
 
 export function getAttendance(attendanceId: string, token: string) {

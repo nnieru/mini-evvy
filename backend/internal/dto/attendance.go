@@ -45,3 +45,7 @@ func NewAttendanceListDTO(list []model.AttendanceLog) []AttendanceResponseDTO {
 	}
 	return out
 }
+
+func NewPaginatedAttendanceListDTO(list []model.AttendanceLog, total, page, pageSize int) PaginatedList[AttendanceResponseDTO] {
+	return NewPaginatedList(NewAttendanceListDTO(list), total, page, pageSize)
+}

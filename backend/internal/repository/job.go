@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -162,6 +163,68 @@ func (r *JobRepo) GetByID(ctx context.Context, db DBTX, id uuid.UUID) (*model.Jo
 	}
 
 	return &job, nil
+}
+
+func (r *JobRepo) CountByEventIDFiltered(ctx context.Context, db DBTX, eventID uuid.UUID, q string) (int, error) {
+	args := []any{eventID.String()}
+	query := `SELECT COUNT(*) FROM jobs WHERE data->>'event_id' = $1`
+	if strings.TrimSpace(q) != "" {
+		query += ` AND (type::text ILIKE $2 OR status::text ILIKE $2)`
+		args = append(args, SearchPattern(q))
+	}
+
+	var total int
+	if err := db.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count jobs by event id: %w", err)
+	}
+	return total, nil
+}
+
+func (r *JobRepo) ListByEventIDPaged(ctx context.Context, db DBTX, eventID uuid.UUID, pq PageQuery) ([]model.Job, error) {
+	args := []any{eventID.String()}
+	query := `
+		SELECT id, type, status, retry_count, data, created_at, updated_at
+		FROM jobs
+		WHERE data->>'event_id' = $1`
+	if strings.TrimSpace(pq.Q) != "" {
+		query += ` AND (type::text ILIKE $2 OR status::text ILIKE $2)`
+		args = append(args, SearchPattern(pq.Q))
+	}
+
+	offset := (pq.Page - 1) * pq.PageSize
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	args = append(args, pq.PageSize, offset)
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs by event id paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.Job
+	for rows.Next() {
+		var job model.Job
+		if err := rows.Scan(
+			&job.ID,
+			&job.Type,
+			&job.Status,
+			&job.RetryCount,
+			&job.Data,
+			&job.CreatedAt,
+			&job.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan job: %w", err)
+		}
+		out = append(out, job)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list jobs paged rows: %w", err)
+	}
+
+	return out, nil
 }
 
 func (r *JobRepo) ListByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.Job, error) {

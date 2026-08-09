@@ -1,25 +1,28 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, h, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import type { ColumnDef } from '@tanstack/vue-table'
 import PageHeader from '@/shared/ui/PageHeader.vue'
 import Card from '@/shared/ui/Card.vue'
 import Button from '@/shared/ui/Button.vue'
 import Input from '@/shared/ui/Input.vue'
 import Select from '@/shared/ui/Select.vue'
 import Badge from '@/shared/ui/Badge.vue'
-import LoadingSpinner from '@/shared/ui/LoadingSpinner.vue'
-import EmptyState from '@/shared/ui/EmptyState.vue'
+import DataTable from '@/shared/ui/DataTable.vue'
 import Alert from '@/shared/ui/Alert.vue'
 import BarcodeCameraScanner from '../components/BarcodeCameraScanner.vue'
 import { getErrorMessage } from '@/shared/lib/errors'
 import { formatDateTime, titleCase } from '@/shared/lib/format'
-import { useGuestsQuery } from '@/features/guests/queries/guests'
-import { useSeatsQuery } from '@/features/seats/queries/seats'
+import { useDebouncedSearch } from '@/shared/composables/useDebouncedSearch'
+import { useAllGuestsQuery } from '@/features/guests/queries/guests'
+import { useAllSeatsQuery } from '@/features/seats/queries/seats'
 import {
   useAttendanceQuery,
   useCheckInMutation,
   useUndoCheckInMutation,
 } from '../queries/attendance'
+import type { ListAttendanceParams } from '../api/attendance'
+import type { Attendance } from '@/shared/api/types'
 
 const route = useRoute()
 const eventId = computed(() => route.params.eventId as string)
@@ -28,15 +31,29 @@ const mode = ref<'camera' | 'manual' | 'guest'>('camera')
 const error = ref('')
 const success = ref('')
 const scannerPaused = ref(false)
+const page = ref(1)
+const pageSize = ref(20)
+const { searchInput, searchQuery } = useDebouncedSearch(() => {
+  page.value = 1
+})
 
 const manualForm = reactive({ barcode: '' })
 const guestForm = reactive({ guest_id: '', seat_id: '', message: '' })
 
-const { data: attendance, isLoading } = useAttendanceQuery(eventId)
-const { data: guests } = useGuestsQuery(eventId)
-const { data: seats } = useSeatsQuery(eventId)
+const listFilters = computed<ListAttendanceParams>(() => ({
+  page: page.value,
+  page_size: pageSize.value,
+  q: searchQuery.value || undefined,
+}))
+
+const { data: attendancePage, isLoading } = useAttendanceQuery(eventId, listFilters)
+const { data: guests } = useAllGuestsQuery(eventId)
+const { data: seats } = useAllSeatsQuery(eventId)
 const checkInMutation = useCheckInMutation(eventId)
 const undoMutation = useUndoCheckInMutation(eventId)
+
+const attendanceRows = computed(() => attendancePage.value?.items ?? [])
+const attendanceTotal = computed(() => attendancePage.value?.total ?? 0)
 
 const guestOptions = computed(
   () => guests.value?.map((g) => ({ label: g.name!, value: g.id! })) ?? [],
@@ -44,6 +61,55 @@ const guestOptions = computed(
 const seatOptions = computed(
   () => seats.value?.map((s) => ({ label: s.code!, value: s.id! })) ?? [],
 )
+
+const attendanceColumns = computed<ColumnDef<Attendance>[]>(() => [
+  {
+    id: 'guest',
+    header: 'Guest',
+    cell: ({ row }) => row.original.guest_id?.slice(0, 8) ?? '—',
+  },
+  {
+    id: 'seat',
+    header: 'Seat',
+    cell: ({ row }) => row.original.seat_id?.slice(0, 8) ?? '—',
+  },
+  {
+    id: 'message',
+    header: 'Message',
+    cell: ({ row }) => row.original.message || '—',
+  },
+  {
+    id: 'checked_at',
+    header: 'Checked in',
+    cell: ({ row }) => formatDateTime(row.original.created_at),
+  },
+  {
+    id: 'status',
+    header: 'Status',
+    cell: ({ row }) =>
+      h(
+        Badge,
+        { tone: row.original.status === 'checked_in' ? 'success' : 'muted' },
+        () => titleCase(row.original.status ?? ''),
+      ),
+  },
+  {
+    id: 'actions',
+    header: '',
+    cell: ({ row }) =>
+      row.original.status === 'checked_in' && row.original.id
+        ? h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'secondary',
+              onClick: () => undo(row.original.id!),
+            },
+            () => 'Undo',
+          )
+        : null,
+  },
+])
 
 async function checkIn(body: { barcode?: string; guest_id?: string; seat_id?: string; message?: string | null }) {
   error.value = ''
@@ -150,34 +216,26 @@ async function undo(attendanceId: string) {
     </Card>
 
     <Card title="Attendance log">
-      <LoadingSpinner v-if="isLoading" />
-      <EmptyState v-else-if="!attendance?.length" title="No check-ins yet" />
-      <div v-else class="space-y-3">
-        <div
-          v-for="item in attendance"
-          :key="item.id"
-          class="rounded-xl border border-border px-3 py-3 sm:flex sm:items-center sm:justify-between"
-        >
-          <div class="text-sm">
-            <p class="font-medium text-ink">Guest {{ item.guest_id?.slice(0, 8) }}</p>
-            <p class="text-ink-muted">Seat {{ item.seat_id?.slice(0, 8) }}</p>
-            <p class="text-ink-muted">{{ formatDateTime(item.created_at) }}</p>
-          </div>
-          <div class="mt-3 flex items-center gap-2 sm:mt-0">
-            <Badge :tone="item.status === 'checked_in' ? 'success' : 'muted'">
-              {{ titleCase(item.status) }}
-            </Badge>
-            <Button
-              v-if="item.status === 'checked_in'"
-              size="sm"
-              variant="secondary"
-              @click="undo(item.id!)"
-            >
-              Undo
-            </Button>
-          </div>
-        </div>
+      <div class="mb-4">
+        <Input
+          v-model="searchInput"
+          label="Search log"
+          placeholder="Guest, seat, barcode, or message"
+          autocomplete="off"
+        />
       </div>
+
+      <DataTable
+        :columns="attendanceColumns"
+        :rows="attendanceRows"
+        :loading="isLoading"
+        :page="page"
+        :page-size="pageSize"
+        :total="attendanceTotal"
+        empty-message="No check-ins yet."
+        @update:page="page = $event"
+        @update:page-size="pageSize = $event"
+      />
     </Card>
   </div>
 </template>

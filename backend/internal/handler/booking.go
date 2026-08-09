@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -197,14 +196,14 @@ func (h *BookingHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	page := httpx.ParsePageParams(r)
 	paymentStatus := r.URL.Query().Get("payment_status")
 
 	result, err := h.bookings.ListByEventPaged(r.Context(), userID, eventID, service.ListBookingsFilter{
 		PaymentStatus: paymentStatus,
-		Page:          page,
-		PageSize:      pageSize,
+		Q:             page.Q,
+		Page:          page.Page,
+		PageSize:      page.PageSize,
 	})
 	if err != nil {
 		h.writeBookingErr(w, err)

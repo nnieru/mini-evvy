@@ -95,13 +95,15 @@ func (h *AttendanceHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := h.attendance.ListByEvent(r.Context(), userID, eventID)
+	page := httpx.ParsePageParams(r)
+
+	list, err := h.attendance.ListByEventPaged(r.Context(), userID, eventID, page.Page, page.PageSize, page.Q)
 	if err != nil {
 		h.writeAttendanceErr(w, err)
 		return
 	}
 
-	httpx.OK(w, http.StatusOK, dto.NewAttendanceListDTO(list))
+	httpx.OK(w, http.StatusOK, dto.NewPaginatedAttendanceListDTO(list.Items, list.Total, list.Page, list.PageSize))
 }
 
 type updateAttendanceRequest struct {
