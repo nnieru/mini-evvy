@@ -42,5 +42,3 @@ volumes:
   caddy_data:
   caddy_config:
   uptime-kuma:
-  caddy_data:
-  caddy_config:
