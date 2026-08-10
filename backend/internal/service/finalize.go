@@ -28,10 +28,13 @@ type seatingDraftStore interface {
 	CountPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
 	ListPreviewPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.SeatingPreviewRow, error)
 	ListPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) ([]model.SeatingPreviewRow, error)
+	DeleteItemsByDraftID(ctx context.Context, db repository.DBTX, draftID uuid.UUID) error
+	CountItemsByGuestID(ctx context.Context, db repository.DBTX, draftID, guestID uuid.UUID) (int, error)
 }
 
 type seatingDraftSeatStore interface {
 	seatLookup
+	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID, status *model.SeatStatus, categoryID *uuid.UUID) ([]model.Seat, error)
 	ClaimHeldFromAvailable(ctx context.Context, db repository.DBTX, seatID uuid.UUID) error
 	ReleaseHeld(ctx context.Context, db repository.DBTX, seatID uuid.UUID) error
 	TransitionHeldTo(ctx context.Context, db repository.DBTX, seatID uuid.UUID, status model.SeatStatus) error
@@ -42,13 +45,19 @@ type eventPhaseStore interface {
 	UpdateSeatingPhase(ctx context.Context, db repository.DBTX, eventID uuid.UUID, phase model.SeatingPhase) error
 }
 
+type finalizeGuestStore interface {
+	guestLookup
+	ListUnbookedByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.Guest, error)
+	SoftDeleteUnbookedByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) error
+}
+
 type FinalizeService struct {
 	pool        *pgxpool.Pool
 	jobs        jobStore
 	events      eventPhaseStore
 	drafts      seatingDraftStore
 	bookings    bookingStore
-	guests      guestLookup
+	guests      finalizeGuestStore
 	seats       seatingDraftSeatStore
 	memberships membershipChecker
 	jobEnqueue  *JobService
@@ -60,7 +69,7 @@ func NewFinalizeService(
 	events eventPhaseStore,
 	drafts seatingDraftStore,
 	bookings bookingStore,
-	guests guestLookup,
+	guests finalizeGuestStore,
 	seats seatingDraftSeatStore,
 	memberships membershipChecker,
 	jobEnqueue *JobService,
@@ -114,7 +123,11 @@ func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID 
 	case model.SeatingOpen, model.SeatingApproved:
 	case model.SeatingPreview:
 		if !hasOpenDraft {
-			return nil, ErrSeatingNotPreview
+			healed, err := s.healPhaseIfDraftMissing(ctx, eventID, event.SeatingPhase)
+			if err != nil {
+				return nil, err
+			}
+			event.SeatingPhase = healed
 		}
 	default:
 		return nil, ErrSeatingNotOpen
@@ -128,6 +141,14 @@ func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID 
 		return nil, ErrFinalizeInProgress
 	}
 
+	readiness, err := s.computeSeatingReadiness(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.SlotsNeeded > 0 && !readiness.CanAssignAny {
+		return nil, ErrSeatingCapacityExhausted
+	}
+
 	job, err := s.jobEnqueue.Enqueue(ctx, jobtype.FinalizeSeating, jobtype.FinalizeSeatingPayload{
 		EventID: eventID,
 		ActorID: actorID,
@@ -139,14 +160,43 @@ func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID 
 	return job, nil
 }
 
+func (s *FinalizeService) healPhaseIfDraftMissing(ctx context.Context, eventID uuid.UUID, phase model.SeatingPhase) (model.SeatingPhase, error) {
+	if phase != model.SeatingPreview {
+		return phase, nil
+	}
+	_, err := s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
+	if err == nil {
+		return phase, nil
+	}
+	if !errors.Is(err, repository.ErrNotFound) {
+		return phase, fmt.Errorf("get open draft: %w", err)
+	}
+
+	hasApproved, err := s.drafts.HasApprovedByEventID(ctx, s.pool, eventID)
+	if err != nil {
+		return phase, fmt.Errorf("check approved drafts: %w", err)
+	}
+	nextPhase := model.SeatingOpen
+	if hasApproved {
+		nextPhase = model.SeatingApproved
+	}
+	if err := s.events.UpdateSeatingPhase(ctx, s.pool, eventID, nextPhase); err != nil {
+		return phase, fmt.Errorf("heal seating phase: %w", err)
+	}
+	return nextPhase, nil
+}
+
 func (s *FinalizeService) ensureSeatingPreviewAccess(ctx context.Context, actorID, eventID uuid.UUID) error {
-	_, err := s.ensureOwnerAdmin(ctx, actorID, eventID)
+	event, err := s.ensureOwnerAdmin(ctx, actorID, eventID)
 	if err != nil {
 		return err
 	}
 
 	_, err = s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
 	if errors.Is(err, repository.ErrNotFound) {
+		if _, healErr := s.healPhaseIfDraftMissing(ctx, eventID, event.SeatingPhase); healErr != nil {
+			return healErr
+		}
 		return ErrNoOpenDraft
 	}
 	if err != nil {
@@ -392,17 +442,27 @@ func (s *FinalizeService) RejectSeating(ctx context.Context, actorID, eventID uu
 
 	for _, item := range items {
 		if err := s.seats.ReleaseHeld(ctx, tx, item.SeatID); err != nil {
-			return fmt.Errorf("release seat %s: %w", item.SeatID, err)
+			if !errors.Is(err, repository.ErrSeatNotAvailable) {
+				return fmt.Errorf("release seat %s: %w", item.SeatID, err)
+			}
 		}
-	}
-
-	if err := s.drafts.UpdateStatus(ctx, tx, draft.ID, model.SeatingDraftRejected); err != nil {
-		return fmt.Errorf("reject draft: %w", err)
 	}
 
 	hasApproved, err := s.drafts.HasApprovedByEventID(ctx, tx, eventID)
 	if err != nil {
 		return fmt.Errorf("check approved drafts: %w", err)
+	}
+
+	if err := s.guests.SoftDeleteUnbookedByEventID(ctx, tx, eventID); err != nil {
+		return fmt.Errorf("soft delete unbooked guests: %w", err)
+	}
+
+	if err := s.drafts.DeleteItemsByDraftID(ctx, tx, draft.ID); err != nil {
+		return fmt.Errorf("delete draft items: %w", err)
+	}
+
+	if err := s.drafts.UpdateStatus(ctx, tx, draft.ID, model.SeatingDraftRejected); err != nil {
+		return fmt.Errorf("reject draft: %w", err)
 	}
 
 	nextPhase := model.SeatingOpen

@@ -4,18 +4,21 @@ import {
   exportSeatingPreview,
   finalizeSeating,
   getSeatingPreview,
+  getSeatingReadiness,
   rejectSeating,
   type ListSeatingPreviewParams,
+  type SeatingReadiness,
   type SeatingPreviewRow,
 } from '@/features/events/api/events'
 
-export type { ListSeatingPreviewParams, SeatingPreviewRow }
+export type { ListSeatingPreviewParams, SeatingPreviewRow, SeatingReadiness }
 
 export {
   approveSeating,
   exportSeatingPreview,
   finalizeSeating,
   getSeatingPreview,
+  getSeatingReadiness,
   rejectSeating,
 }
 

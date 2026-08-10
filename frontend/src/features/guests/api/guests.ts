@@ -16,6 +16,7 @@ export type ListGuestsParams = ListPageParams
 export type GuestImportResult = {
   created: number
   updated: number
+  skipped: number
   failed: number
   errors: { row: number; message: string }[]
 }
@@ -32,6 +33,14 @@ export function listGuests(eventId: string, token: string, params?: ListGuestsPa
 
 export function listGuestsAll(eventId: string, token: string) {
   return fetchAllPages((page, page_size) => listGuests(eventId, token, { page, page_size }))
+}
+
+export type UnbookedGuestCount = {
+  total: number
+}
+
+export function getUnbookedGuestCount(eventId: string, token: string) {
+  return apiGet<UnbookedGuestCount>(`/events/${eventId}/guests/unbooked-count`, token)
 }
 
 export function getGuest(guestId: string, token: string) {

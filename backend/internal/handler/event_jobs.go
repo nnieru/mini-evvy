@@ -48,6 +48,28 @@ func (h *EventJobsHandler) FinalizeSeating(w http.ResponseWriter, r *http.Reques
 	httpx.OK(w, http.StatusAccepted, jobResponse{JobID: job.ID.String()})
 }
 
+func (h *EventJobsHandler) GetSeatingReadiness(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Fail(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing user credentials")
+		return
+	}
+
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventId"))
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid event ID")
+		return
+	}
+
+	readiness, err := h.finalize.GetSeatingReadiness(r.Context(), userID, eventID)
+	if err != nil {
+		h.writeFinalizeErr(w, err)
+		return
+	}
+
+	httpx.OK(w, http.StatusOK, dto.NewSeatingReadinessDTO(readiness))
+}
+
 func (h *EventJobsHandler) GetSeatingPreview(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.UserIDFromContext(r.Context())
 	if !ok {
@@ -193,6 +215,8 @@ func (h *EventJobsHandler) writeFinalizeErr(w http.ResponseWriter, err error) {
 		httpx.Fail(w, http.StatusConflict, "FINALIZE_IN_PROGRESS", err.Error())
 	case errors.Is(err, service.ErrSeatingNotOpen):
 		httpx.Fail(w, http.StatusConflict, "SEATING_NOT_OPEN", err.Error())
+	case errors.Is(err, service.ErrSeatingCapacityExhausted):
+		httpx.Fail(w, http.StatusConflict, "SEATING_CAPACITY_EXHAUSTED", err.Error())
 	default:
 		httpx.Fail(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 	}

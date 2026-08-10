@@ -1,12 +1,10 @@
 import { onUnmounted, ref } from 'vue'
-import { useQueryClient } from '@tanstack/vue-query'
 import { getJob } from '@/features/jobs/api/jobs'
 import { useAuthStore } from '@/features/auth/stores/auth'
 import type { Job } from '@/shared/api/types'
 
 export function useJobPoller() {
   const auth = useAuthStore()
-  const queryClient = useQueryClient()
   const polling = ref(false)
   const currentJob = ref<Job | null>(null)
   const error = ref<string | null>(null)
@@ -36,7 +34,6 @@ export function useJobPoller() {
         currentJob.value = job
         if (job.status === 'done') {
           stop()
-          await queryClient.invalidateQueries()
           options?.onDone?.(job)
         } else if (job.status === 'failed') {
           stop()

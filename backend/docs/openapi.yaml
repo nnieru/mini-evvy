@@ -408,9 +408,11 @@ paths:
       tags: [Jobs]
       summary: Enqueue finalize seating job
       description: |
-        Owner/admin. Event must be in seating_phase `open`, `preview`, or `approved`.
-        Enqueues a job that assigns unbooked guests to draft items and holds seats (`held`).
-        When the job completes, phase becomes `preview`. Poll job status; review via seating-preview and approve or reject.
+        Owner/admin. Draft path only — does not affect manual bookings on the Bookings page.
+        Event must be in seating_phase `open`, `preview`, or `approved`.
+        Enqueues a job that assigns unbooked uploaded guests to draft items and holds seats (`held`).
+        Seats are not assigned until this job runs. When it completes, phase becomes `preview`.
+        Poll job status; review via seating-preview, then approve or reject the draft.
       operationId: finalizeSeating
       security:
         - bearerAuth: []
@@ -430,11 +432,38 @@ paths:
         "404":
           $ref: "#/components/responses/EventNotFound"
         "409":
-          description: Finalize already in progress or seating not open
+          description: Finalize already in progress, seating not open, or no available seats in required categories
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+
+  /events/{eventId}/seating-readiness:
+    get:
+      tags: [Jobs]
+      summary: Seating generate readiness
+      description: |
+        Owner/admin. Reports how many ticket slots unbooked guests still need and whether any
+        available seats exist in those guests' categories (same rules as the finalize worker).
+        Use before enqueueing finalize seating.
+      operationId: getSeatingReadiness
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatingReadinessEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
 
   /events/{eventId}/seating-preview:
     get:
@@ -493,7 +522,10 @@ paths:
     post:
       tags: [Jobs]
       summary: Approve seating draft
-      description: Owner/admin. Phase must be `preview`. Commits draft items to bookings, enqueues send_invitation for each, sets phase `approved`.
+      description: |
+        Owner/admin. Draft path only. Phase must be `preview` with an open seating draft.
+        Commits draft items to `seat_bookings`, enqueues send_invitation for each new booking,
+        and sets phase `approved`. Does not modify existing manual bookings.
       operationId: approveSeating
       security:
         - bearerAuth: []
@@ -517,7 +549,12 @@ paths:
     post:
       tags: [Jobs]
       summary: Reject seating draft
-      description: Owner/admin. Requires an open seating draft. Releases held seats, marks draft rejected. Phase becomes `open` or stays `approved` if a prior wave was approved.
+      description: |
+        Owner/admin. Draft path only. Requires an open seating draft.
+        Releases held seats from draft items, deletes draft items, and soft-deletes unbooked guests
+        (guests with active manual or approved-wave bookings are kept). Does not cancel existing
+        `seat_bookings` or change manually assigned seats. Marks draft rejected. Phase becomes
+        `open` or stays `approved` if a prior wave was approved.
       operationId: rejectSeating
       security:
         - bearerAuth: []
@@ -951,7 +988,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [available, reserved, occupied, blocked]
+            enum: [available, held, reserved, occupied, blocked]
           description: Filter seats by status.
         - name: category_id
           in: query
@@ -1079,6 +1116,32 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /events/{eventId}/guests/unbooked-count:
+    get:
+      tags: [Guests]
+      summary: Count guests needing seats
+      description: |
+        Org member. Returns guests with fewer active bookings than `ticket_count` — the same
+        eligibility set used by finalize seating.
+      operationId: getUnbookedGuestCount
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnbookedGuestCountEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
   /events/{eventId}/guests/import:
     post:
       tags: [Guests]
@@ -1087,6 +1150,9 @@ paths:
         Owner/admin. Upload Nadaland-style `.xlsx` with columns Name, Email, Invoice Code,
         Order Time, Ticket Name, Ticket Quantity, Status. Ticket Name maps to category code.
         PAID rows set paid_date from Order Time. Duplicate name+email+category bumps ticket_count.
+        When seating phase is `approved` (after a prior wave), rows matching an existing guest who
+        already has a booking for every ticket are skipped. To add more tickets for that guest,
+        edit ticket count on the Guests page first.
       operationId: importGuests
       security:
         - bearerAuth: []
@@ -1181,7 +1247,9 @@ paths:
       tags: [Bookings]
       summary: Create booking (manual seat assignment)
       description: |
-        Org member. Creates a booking for an available seat.
+        Org member. Manual booking path — separate from the seating draft flow.
+        Creates a booking for an available seat immediately from the request body.
+        Blocked while a seating draft is open (`seating_phase` `preview`).
 
         Provide either an existing `guest_id` (legacy) or inline guest fields
         (`name`, `email`, `category_id`) to create the guest and booking in one
@@ -1266,9 +1334,11 @@ paths:
       tags: [Bookings]
       summary: Create bookings in batch (seat grid)
       description: |
-        Org member. Creates one guest and one booking per item in a single
-        transaction. All seats must be available, belong to the event, and share
-        the same category. Guest category is taken from each seat's category_id.
+        Org member. Manual booking path — separate from the seating draft flow.
+        Creates one guest and one booking per item in a single transaction from user input.
+        Blocked while a seating draft is open (`seating_phase` `preview`).
+        All seats must be available, belong to the event, and share the same category.
+        Guest category is taken from each seat's category_id.
       operationId: createBookingsBatch
       security:
         - bearerAuth: []
@@ -1951,7 +2021,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [available, reserved, occupied, blocked]
+          enum: [available, held, reserved, occupied, blocked]
           default: available
 
     CreateSeatsRequest:
@@ -1986,7 +2056,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [available, reserved, occupied, blocked]
+          enum: [available, held, reserved, occupied, blocked]
 
     CreateGuestRequest:
       type: object
@@ -2309,7 +2379,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [available, reserved, occupied, blocked]
+          enum: [available, held, reserved, occupied, blocked]
         description:
           type: string
           nullable: true
@@ -2760,6 +2830,9 @@ components:
           type: integer
         updated:
           type: integer
+        skipped:
+          type: integer
+          description: Rows skipped because the guest was already fully seated from a prior approved wave.
         failed:
           type: integer
         errors:
@@ -2808,6 +2881,22 @@ components:
           type: boolean
         data:
           $ref: "#/components/schemas/PaginatedGuestList"
+
+    UnbookedGuestCount:
+      type: object
+      required: [total]
+      properties:
+        total:
+          type: integer
+          description: Guests with remaining ticket slots (active bookings < ticket_count).
+
+    UnbookedGuestCountEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/UnbookedGuestCount"
 
     PaginatedSeatListEnvelope:
       type: object
@@ -2886,6 +2975,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Job"
+
+    CategoryCapacityShortfall:
+      type: object
+      required: [category_id, slots_needed, seats_available]
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        slots_needed:
+          type: integer
+        seats_available:
+          type: integer
+
+    SeatingReadiness:
+      type: object
+      required: [unbooked_guests, slots_needed, can_assign_any, shortfalls]
+      properties:
+        unbooked_guests:
+          type: integer
+        slots_needed:
+          type: integer
+        can_assign_any:
+          type: boolean
+        shortfalls:
+          type: array
+          items:
+            $ref: "#/components/schemas/CategoryCapacityShortfall"
+
+    SeatingReadinessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/SeatingReadiness"
 
     JobIdEnvelope:
       type: object

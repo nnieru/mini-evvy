@@ -237,11 +237,35 @@ export interface paths {
         put?: never;
         /**
          * Enqueue finalize seating job
-         * @description Owner/admin. Event must be in seating_phase `open`. Enqueues a job that assigns seats
-         *     to unbooked guests with barcodes (no emails). When the job completes, phase becomes
-         *     `preview`. Poll job status; when complete, review via seating-preview and approve or reject.
+         * @description Owner/admin. Draft path only — does not affect manual bookings on the Bookings page.
+         *     Event must be in seating_phase `open`, `preview`, or `approved`.
+         *     Enqueues a job that assigns unbooked uploaded guests to draft items and holds seats (`held`).
+         *     Seats are not assigned until this job runs. When it completes, phase becomes `preview`.
+         *     Poll job status; review via seating-preview, then approve or reject the draft.
          */
         post: operations["finalizeSeating"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events/{eventId}/seating-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Seating generate readiness
+         * @description Owner/admin. Reports how many ticket slots unbooked guests still need and whether any
+         *     available seats exist in those guests' categories (same rules as the finalize worker).
+         *     Use before enqueueing finalize seating.
+         */
+        get: operations["getSeatingReadiness"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -257,7 +281,7 @@ export interface paths {
         };
         /**
          * Seating preview report
-         * @description Org member. Available when seating_phase is `preview` or `approved`. Lists guest assignments.
+         * @description Owner/admin. Requires an open seating draft. Lists draft seat assignments.
          */
         get: operations["getSeatingPreview"];
         put?: never;
@@ -277,7 +301,7 @@ export interface paths {
         };
         /**
          * Export seating preview to Excel
-         * @description Org member. Available when seating_phase is `preview` or `approved`. Exports all rows matching optional `q` (ignores pagination).
+         * @description Owner/admin. Requires an open seating draft. Exports all draft rows matching optional `q` (ignores pagination).
          */
         get: operations["exportSeatingPreview"];
         put?: never;
@@ -298,8 +322,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve seating preview
-         * @description Owner/admin. Phase must be `preview`. Enqueues send_invitation for each active booking; sets phase `approved`.
+         * Approve seating draft
+         * @description Owner/admin. Draft path only. Phase must be `preview` with an open seating draft.
+         *     Commits draft items to `seat_bookings`, enqueues send_invitation for each new booking,
+         *     and sets phase `approved`. Does not modify existing manual bookings.
          */
         post: operations["approveSeating"];
         delete?: never;
@@ -318,14 +344,38 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reject seating preview
-         * @description Owner/admin. Phase must be `preview` or `approved`. Cancels pending/paid invited bookings, frees seats, sets phase `open`.
+         * Reject seating draft
+         * @description Owner/admin. Draft path only. Requires an open seating draft.
+         *     Releases held seats from draft items, deletes draft items, and soft-deletes unbooked guests
+         *     (guests with active manual or approved-wave bookings are kept). Does not cancel existing
+         *     `seat_bookings` or change manually assigned seats. Marks draft rejected. Phase becomes
+         *     `open` or stays `approved` if a prior wave was approved.
          */
         post: operations["rejectSeating"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/events/{eventId}/seating-draft/items/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Reassign draft item seat
+         * @description Owner/admin. Requires an open seating draft. Swaps held seat for another available seat in the same category.
+         */
+        patch: operations["reassignDraftItem"];
         trace?: never;
     };
     "/events/{eventId}/jobs": {
@@ -549,6 +599,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/events/{eventId}/guests/unbooked-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count guests needing seats
+         * @description Org member. Returns guests with fewer active bookings than `ticket_count` — the same
+         *     eligibility set used by finalize seating.
+         */
+        get: operations["getUnbookedGuestCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events/{eventId}/guests/import": {
         parameters: {
             query?: never;
@@ -563,6 +634,9 @@ export interface paths {
          * @description Owner/admin. Upload Nadaland-style `.xlsx` with columns Name, Email, Invoice Code,
          *     Order Time, Ticket Name, Ticket Quantity, Status. Ticket Name maps to category code.
          *     PAID rows set paid_date from Order Time. Duplicate name+email+category bumps ticket_count.
+         *     When seating phase is `approved` (after a prior wave), rows matching an existing guest who
+         *     already has a booking for every ticket are skipped. To add more tickets for that guest,
+         *     edit ticket count on the Guests page first.
          */
         post: operations["importGuests"];
         delete?: never;
@@ -608,7 +682,9 @@ export interface paths {
         put?: never;
         /**
          * Create booking (manual seat assignment)
-         * @description Org member. Creates a booking for an available seat.
+         * @description Org member. Manual booking path — separate from the seating draft flow.
+         *     Creates a booking for an available seat immediately from the request body.
+         *     Blocked while a seating draft is open (`seating_phase` `preview`).
          *
          *     Provide either an existing `guest_id` (legacy) or inline guest fields
          *     (`name`, `email`, `category_id`) to create the guest and booking in one
@@ -632,9 +708,11 @@ export interface paths {
         put?: never;
         /**
          * Create bookings in batch (seat grid)
-         * @description Org member. Creates one guest and one booking per item in a single
-         *     transaction. All seats must be available, belong to the event, and share
-         *     the same category. Guest category is taken from each seat's category_id.
+         * @description Org member. Manual booking path — separate from the seating draft flow.
+         *     Creates one guest and one booking per item in a single transaction from user input.
+         *     Blocked while a seating draft is open (`seating_phase` `preview`).
+         *     All seats must be available, belong to the event, and share the same category.
+         *     Guest category is taken from each seat's category_id.
          */
         post: operations["createBookingsBatch"];
         delete?: never;
@@ -680,7 +758,7 @@ export interface paths {
         put?: never;
         /**
          * Re-send invitation email
-         * @description Org member. Booking must not be cancelled; guest must have email.
+         * @description Org member. Event seating must be approved. Booking must not be cancelled; guest must have email.
          */
         post: operations["resendInvitation"];
         delete?: never;
@@ -852,7 +930,7 @@ export interface components {
              * @default available
              * @enum {string}
              */
-            status: "available" | "reserved" | "occupied" | "blocked";
+            status: "available" | "held" | "reserved" | "occupied" | "blocked";
         };
         CreateSeatsRequest: {
             seats: components["schemas"]["CreateSeatItem"][];
@@ -866,7 +944,7 @@ export interface components {
             col?: number | null;
             description?: string | null;
             /** @enum {string} */
-            status?: "available" | "reserved" | "occupied" | "blocked";
+            status?: "available" | "held" | "reserved" | "occupied" | "blocked";
         };
         CreateGuestRequest: {
             name: string;
@@ -1058,7 +1136,7 @@ export interface components {
             row?: number | null;
             col?: number | null;
             /** @enum {string} */
-            status?: "available" | "reserved" | "occupied" | "blocked";
+            status?: "available" | "held" | "reserved" | "occupied" | "blocked";
             description?: string | null;
             /** Format: uuid */
             event_id?: string;
@@ -1285,6 +1363,8 @@ export interface components {
         GuestImportResult: {
             created?: number;
             updated?: number;
+            /** @description Rows skipped because the guest was already fully seated from a prior approved wave. */
+            skipped?: number;
             failed?: number;
             errors?: components["schemas"]["GuestImportRowError"][];
         };
@@ -1307,6 +1387,14 @@ export interface components {
         PaginatedGuestListEnvelope: {
             success?: boolean;
             data?: components["schemas"]["PaginatedGuestList"];
+        };
+        UnbookedGuestCount: {
+            /** @description Guests with remaining ticket slots (active bookings < ticket_count). */
+            total: number;
+        };
+        UnbookedGuestCountEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["UnbookedGuestCount"];
         };
         PaginatedSeatListEnvelope: {
             success?: boolean;
@@ -1343,6 +1431,22 @@ export interface components {
         JobListEnvelope: {
             success?: boolean;
             data?: components["schemas"]["Job"][];
+        };
+        CategoryCapacityShortfall: {
+            /** Format: uuid */
+            category_id: string;
+            slots_needed: number;
+            seats_available: number;
+        };
+        SeatingReadiness: {
+            unbooked_guests: number;
+            slots_needed: number;
+            can_assign_any: boolean;
+            shortfalls: components["schemas"]["CategoryCapacityShortfall"][];
+        };
+        SeatingReadinessEnvelope: {
+            success?: boolean;
+            data?: components["schemas"]["SeatingReadiness"];
         };
         JobIdEnvelope: {
             success?: boolean;
@@ -1411,10 +1515,12 @@ export interface components {
         };
         SeatingPreviewRow: {
             /** Format: uuid */
-            booking_id?: string;
+            id?: string;
             guest_name?: string;
             guest_email?: string;
             seat_code?: string;
+            /** Format: uuid */
+            seat_id?: string;
             category_name?: string;
             category_code?: string | null;
             section?: string | null;
@@ -1994,7 +2100,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["EventNotFound"];
-            /** @description Finalize already in progress or seating not open */
+            /** @description Finalize already in progress, seating not open, or no available seats in required categories */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2003,6 +2109,31 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+        };
+    };
+    getSeatingReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeatingReadinessEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
         };
     };
     getSeatingPreview: {
@@ -2111,6 +2242,56 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["EventNotFound"];
+        };
+    };
+    reassignDraftItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    seat_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Draft item or seat not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Seat not available */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     listEventJobs: {
@@ -2456,7 +2637,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Filter seats by status. */
-                status?: "available" | "reserved" | "occupied" | "blocked";
+                status?: "available" | "held" | "reserved" | "occupied" | "blocked";
                 /** @description Filter seats by ticket category. */
                 category_id?: string;
                 page?: components["parameters"]["page"];
@@ -2625,6 +2806,31 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getUnbookedGuestCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnbookedGuestCountEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
         };
     };
     importGuests: {
@@ -2943,6 +3149,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["BookingNotFound"];
+            /** @description Seating not approved yet */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     listPayments: {

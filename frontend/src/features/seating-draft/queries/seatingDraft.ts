@@ -4,16 +4,28 @@ import {
   approveSeating,
   finalizeSeating,
   getSeatingPreview,
+  getSeatingReadiness,
   reassignDraftItem,
   rejectSeating,
   type ListSeatingPreviewParams,
 } from '../api/seatingDraft'
 import { useAuthStore } from '@/features/auth/stores/auth'
 import { eventKeys } from '@/features/events/queries/events'
+import { guestKeys } from '@/features/guests/queries/guests'
 
 export const seatingDraftKeys = {
   preview: (eventId: string, params?: ListSeatingPreviewParams) =>
     ['seating-draft', 'preview', eventId, params ?? null] as const,
+  readiness: (eventId: string) => ['seating-draft', 'readiness', eventId] as const,
+}
+
+export function useSeatingReadinessQuery(eventId: Ref<string>, enabled: Ref<boolean>) {
+  const auth = useAuthStore()
+  return useQuery({
+    queryKey: computed(() => seatingDraftKeys.readiness(eventId.value)),
+    queryFn: () => getSeatingReadiness(eventId.value, auth.token!),
+    enabled: computed(() => Boolean(auth.token && eventId.value && enabled.value)),
+  })
 }
 
 export function useFinalizeSeatingMutation(eventId: Ref<string>) {
@@ -23,6 +35,7 @@ export function useFinalizeSeatingMutation(eventId: Ref<string>) {
     mutationFn: () => finalizeSeating(eventId.value, auth.token!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.detail(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: seatingDraftKeys.readiness(eventId.value) })
     },
   })
 }
@@ -48,7 +61,11 @@ export function useApproveSeatingMutation(eventId: Ref<string>) {
     mutationFn: () => approveSeating(eventId.value, auth.token!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.detail(eventId.value) })
-      queryClient.invalidateQueries({ queryKey: seatingDraftKeys.preview(eventId.value) })
+      queryClient.removeQueries({ queryKey: seatingDraftKeys.preview(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: ['bookings', eventId.value] })
+      queryClient.invalidateQueries({ queryKey: ['seats', eventId.value] })
+      queryClient.invalidateQueries({ queryKey: ['guests', eventId.value] })
+      queryClient.invalidateQueries({ queryKey: seatingDraftKeys.readiness(eventId.value) })
     },
   })
 }
@@ -60,7 +77,13 @@ export function useRejectSeatingMutation(eventId: Ref<string>) {
     mutationFn: () => rejectSeating(eventId.value, auth.token!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.detail(eventId.value) })
-      queryClient.invalidateQueries({ queryKey: seatingDraftKeys.preview(eventId.value) })
+      queryClient.removeQueries({ queryKey: seatingDraftKeys.preview(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: guestKeys.list(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: guestKeys.all(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: guestKeys.unbookedCount(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: seatingDraftKeys.readiness(eventId.value) })
+      queryClient.invalidateQueries({ queryKey: ['bookings', eventId.value] })
+      queryClient.invalidateQueries({ queryKey: ['seats', eventId.value] })
     },
   })
 }

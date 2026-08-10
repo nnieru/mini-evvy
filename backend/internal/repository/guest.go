@@ -127,6 +127,92 @@ func (r *GuestRepo) GetByEventNameEmailCategory(
 	return &guest, nil
 }
 
+func (r *GuestRepo) GetSoftDeletedByEventNameEmailCategory(
+	ctx context.Context,
+	db DBTX,
+	eventID, categoryID uuid.UUID,
+	name, email string,
+) (*model.Guest, error) {
+	const query = `
+		SELECT id, event_id, category_id, name, email, paid_date, ticket_count,
+			created_at, updated_at, deleted_at
+		FROM guests
+		WHERE event_id = $1
+			AND category_id = $2
+			AND lower(trim(email)) = lower(trim($3))
+			AND lower(trim(name)) = lower(trim($4))
+			AND deleted_at IS NOT NULL
+		ORDER BY deleted_at DESC
+		LIMIT 1
+	`
+
+	var guest model.Guest
+	err := db.QueryRow(ctx, query, eventID, categoryID, email, name).Scan(
+		&guest.ID,
+		&guest.EventID,
+		&guest.CategoryID,
+		&guest.Name,
+		&guest.Email,
+		&guest.PaidDate,
+		&guest.TicketCount,
+		&guest.CreatedAt,
+		&guest.UpdatedAt,
+		&guest.DeletedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get soft deleted guest by event name email category: %w", err)
+	}
+
+	return &guest, nil
+}
+
+func (r *GuestRepo) RestoreSoftDeleted(ctx context.Context, db DBTX, g *model.Guest) (*model.Guest, error) {
+	const query = `
+		UPDATE guests SET
+			category_id = $1,
+			name = $2,
+			email = $3,
+			paid_date = $4,
+			ticket_count = $5,
+			deleted_at = NULL,
+			updated_at = now()
+		WHERE id = $6 AND deleted_at IS NOT NULL
+		RETURNING id, event_id, category_id, name, email, paid_date, ticket_count,
+			created_at, updated_at, deleted_at
+	`
+
+	var guest model.Guest
+	err := db.QueryRow(ctx, query,
+		g.CategoryID,
+		g.Name,
+		g.Email,
+		g.PaidDate,
+		g.TicketCount,
+		g.ID,
+	).Scan(
+		&guest.ID,
+		&guest.EventID,
+		&guest.CategoryID,
+		&guest.Name,
+		&guest.Email,
+		&guest.PaidDate,
+		&guest.TicketCount,
+		&guest.CreatedAt,
+		&guest.UpdatedAt,
+		&guest.DeletedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("restore soft deleted guest: %w", err)
+	}
+	return &guest, nil
+}
+
 func (r *GuestRepo) ListByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.Guest, error) {
 	const query = `
 		SELECT id, event_id, category_id, name, email, paid_date, ticket_count,
@@ -227,16 +313,29 @@ func (r *GuestRepo) ListByEventIDPaged(ctx context.Context, db DBTX, eventID uui
 	return out, nil
 }
 
-func (r *GuestRepo) ListUnbookedByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.Guest, error) {
-	const query = `
-		SELECT g.id, g.event_id, g.category_id, g.name, g.email, g.paid_date, g.ticket_count,
-			g.created_at, g.updated_at, g.deleted_at
+const unbookedGuestsWhere = `
 		FROM guests g
 		WHERE g.event_id = $1 AND g.deleted_at IS NULL
 			AND (
 				SELECT COUNT(*) FROM seat_bookings sb
 				WHERE sb.guest_id = g.id AND sb.deleted_at IS NULL AND sb.status <> 'cancelled'
 			) < g.ticket_count
+`
+
+func (r *GuestRepo) CountUnbookedByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*)` + unbookedGuestsWhere
+	var total int
+	if err := db.QueryRow(ctx, query, eventID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count unbooked guests by event id: %w", err)
+	}
+	return total, nil
+}
+
+func (r *GuestRepo) ListUnbookedByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) ([]model.Guest, error) {
+	query := `
+		SELECT g.id, g.event_id, g.category_id, g.name, g.email, g.paid_date, g.ticket_count,
+			g.created_at, g.updated_at, g.deleted_at
+` + unbookedGuestsWhere + `
 		ORDER BY g.paid_date ASC NULLS LAST, g.created_at ASC
 	`
 
@@ -271,6 +370,37 @@ func (r *GuestRepo) ListUnbookedByEventID(ctx context.Context, db DBTX, eventID 
 	}
 
 	return out, nil
+}
+
+func (r *GuestRepo) SoftDeleteUnbookedByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) error {
+	const query = `
+		UPDATE guests
+		SET deleted_at = now(), updated_at = now()
+		WHERE event_id = $1
+			AND deleted_at IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM seat_bookings sb
+				WHERE sb.guest_id = guests.id
+					AND sb.deleted_at IS NULL
+					AND sb.status <> 'cancelled'
+			)
+	`
+	if _, err := db.Exec(ctx, query, eventID); err != nil {
+		return fmt.Errorf("soft delete unbooked guests: %w", err)
+	}
+	return nil
+}
+
+func (r *GuestRepo) SoftDeleteAllByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) error {
+	const query = `
+		UPDATE guests
+		SET deleted_at = now(), updated_at = now()
+		WHERE event_id = $1 AND deleted_at IS NULL
+	`
+	if _, err := db.Exec(ctx, query, eventID); err != nil {
+		return fmt.Errorf("soft delete all guests: %w", err)
+	}
+	return nil
 }
 
 func (r *GuestRepo) Update(ctx context.Context, db DBTX, g *model.Guest) (*model.Guest, error) {

@@ -396,7 +396,10 @@ async function submitPayment() {
 
 <template>
   <div class="space-y-6">
-    <PageHeader title="Bookings" description="Select seats on the map, then assign guests." />
+    <PageHeader
+      title="Bookings"
+      description="Manual seating: select seats on the map and enter guest details to create bookings immediately. For bulk auto-assign from uploaded guests, use Seating draft."
+    />
 
     <Alert v-if="message" tone="success" :title="message" />
     <Alert v-if="error" tone="error" :title="error" />

@@ -71,6 +71,8 @@ function seatClasses(seat: Seat) {
       return 'border-warning/40 bg-warning-soft text-warning'
     case 'occupied':
       return 'border-accent/40 bg-accent-soft/60 text-accent'
+    case 'held':
+      return 'border-dashed border-ink-muted/50 bg-surface text-ink-muted'
     case 'blocked':
       return 'border-border bg-surface text-ink-muted'
     default:
@@ -183,6 +185,9 @@ function onSeatClick(seat: Seat) {
       </span>
       <span class="inline-flex items-center gap-1.5">
         <span class="h-3 w-3 rounded border border-warning/40 bg-warning-soft" /> Reserved
+      </span>
+      <span class="inline-flex items-center gap-1.5">
+        <span class="h-3 w-3 rounded border border-dashed border-ink-muted/50 bg-surface" /> Held (draft)
       </span>
       <span class="inline-flex items-center gap-1.5">
         <span class="h-3 w-3 rounded border border-accent/40 bg-accent-soft/60" /> Occupied

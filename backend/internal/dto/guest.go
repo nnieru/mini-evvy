@@ -43,3 +43,11 @@ func NewGuestListDTO(list []model.Guest) []GuestResponseDTO {
 func NewPaginatedGuestListDTO(list []model.Guest, total, page, pageSize int) PaginatedList[GuestResponseDTO] {
 	return NewPaginatedList(NewGuestListDTO(list), total, page, pageSize)
 }
+
+type UnbookedGuestCountDTO struct {
+	Total int `json:"total"`
+}
+
+func NewUnbookedGuestCountDTO(total int) UnbookedGuestCountDTO {
+	return UnbookedGuestCountDTO{Total: total}
+}

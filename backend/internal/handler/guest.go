@@ -120,6 +120,28 @@ func (h *GuestHandler) List(w http.ResponseWriter, r *http.Request) {
 	httpx.OK(w, http.StatusOK, dto.NewPaginatedGuestListDTO(list.Items, list.Total, list.Page, list.PageSize))
 }
 
+func (h *GuestHandler) UnbookedCount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Fail(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing user credentials")
+		return
+	}
+
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventId"))
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid event ID")
+		return
+	}
+
+	total, err := h.guests.CountUnbookedByEvent(r.Context(), userID, eventID)
+	if err != nil {
+		h.writeGuestErr(w, err)
+		return
+	}
+
+	httpx.OK(w, http.StatusOK, dto.NewUnbookedGuestCountDTO(total))
+}
+
 func (h *GuestHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.UserIDFromContext(r.Context())
 	if !ok {

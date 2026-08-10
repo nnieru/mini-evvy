@@ -68,7 +68,8 @@ func main() {
 
 	// guests
 	guestRepo := repository.NewGuestRepo(pool)
-	guestService := service.NewGuestService(pool, guestRepo, eventRepo, categoryRepo, userRoleRepo)
+	bookingRepo := repository.NewBookingRepo(pool)
+	guestService := service.NewGuestService(pool, guestRepo, bookingRepo, eventRepo, categoryRepo, userRoleRepo)
 	guestHandler := handler.NewGuestHandler(guestService)
 
 	// jobs
@@ -76,7 +77,6 @@ func main() {
 	jobService := service.NewJobService(pool, jobRepo)
 
 	// bookings
-	bookingRepo := repository.NewBookingRepo(pool)
 	bookingService := service.NewBookingService(pool, bookingRepo, eventRepo, guestRepo, seatRepo, categoryRepo, userRoleRepo, jobService)
 
 	// payments
@@ -172,6 +172,7 @@ func main() {
 		r.Get("/events/{eventId}", eventHandler.Get)
 		r.Patch("/events/{eventId}", eventHandler.Update)
 		r.Post("/events/{eventId}/import-config", eventImportHandler.ImportConfig)
+		r.Get("/events/{eventId}/seating-readiness", eventJobsHandler.GetSeatingReadiness)
 		r.Post("/events/{eventId}/finalize-seating", eventJobsHandler.FinalizeSeating)
 		r.Get("/events/{eventId}/seating-preview/export", eventJobsHandler.ExportSeatingPreview)
 		r.Get("/events/{eventId}/seating-preview", eventJobsHandler.GetSeatingPreview)
@@ -201,6 +202,7 @@ func main() {
 
 		r.Post("/events/{eventId}/guests", guestHandler.Create)
 		r.Post("/events/{eventId}/guests/import", guestHandler.Import)
+		r.Get("/events/{eventId}/guests/unbooked-count", guestHandler.UnbookedCount)
 		r.Get("/events/{eventId}/guests", guestHandler.List)
 		r.Get("/guests/{guestId}", guestHandler.Get)
 		r.Patch("/guests/{guestId}", guestHandler.Update)

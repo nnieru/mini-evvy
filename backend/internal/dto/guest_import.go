@@ -10,6 +10,7 @@ type GuestImportRowErrorDTO struct {
 type GuestImportResultDTO struct {
 	Created int                      `json:"created"`
 	Updated int                      `json:"updated"`
+	Skipped int                      `json:"skipped"`
 	Failed  int                      `json:"failed"`
 	Errors  []GuestImportRowErrorDTO `json:"errors"`
 }
@@ -22,6 +23,7 @@ func NewGuestImportResultDTO(r *service.GuestImportResult) GuestImportResultDTO 
 	return GuestImportResultDTO{
 		Created: r.Created,
 		Updated: r.Updated,
+		Skipped: r.Skipped,
 		Failed:  r.Failed,
 		Errors:  errs,
 	}

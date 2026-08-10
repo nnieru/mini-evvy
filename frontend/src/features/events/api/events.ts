@@ -35,6 +35,23 @@ export function finalizeSeating(eventId: string, token: string) {
   return apiPost<JobIdResponse>(`/events/${eventId}/finalize-seating`, {}, token)
 }
 
+export type CategoryCapacityShortfall = {
+  category_id: string
+  slots_needed: number
+  seats_available: number
+}
+
+export type SeatingReadiness = {
+  unbooked_guests: number
+  slots_needed: number
+  can_assign_any: boolean
+  shortfalls: CategoryCapacityShortfall[]
+}
+
+export function getSeatingReadiness(eventId: string, token: string) {
+  return apiGet<SeatingReadiness>(`/events/${eventId}/seating-readiness`, token)
+}
+
 export type SeatingPreviewRow = {
   id: string
   guest_name: string

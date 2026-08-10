@@ -28,11 +28,13 @@ type bookingStore interface {
 	Create(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.SeatBooking, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.SeatBooking, error)
+	ListActiveByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.SeatBooking, error)
 	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.BookingListQuery) ([]model.BookingListRow, error)
 	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.BookingListQuery) (int, error)
 	ListExpiredUnpaid(ctx context.Context, db repository.DBTX, olderThan time.Time) ([]model.SeatBooking, error)
 	Update(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 	SoftDelete(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
+	CountActiveByGuestID(ctx context.Context, db repository.DBTX, guestID uuid.UUID) (int, error)
 }
 
 type guestLookup interface {

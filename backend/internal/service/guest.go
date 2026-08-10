@@ -20,15 +20,23 @@ type guestStore interface {
 	Create(ctx context.Context, db repository.DBTX, g *model.Guest) (*model.Guest, error)
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.Guest, error)
 	GetByEventNameEmailCategory(ctx context.Context, db repository.DBTX, eventID, categoryID uuid.UUID, name, email string) (*model.Guest, error)
+	GetSoftDeletedByEventNameEmailCategory(ctx context.Context, db repository.DBTX, eventID, categoryID uuid.UUID, name, email string) (*model.Guest, error)
+	RestoreSoftDeleted(ctx context.Context, db repository.DBTX, g *model.Guest) (*model.Guest, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.Guest, error)
 	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
+	CountUnbookedByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) (int, error)
 	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.Guest, error)
 	Update(ctx context.Context, db repository.DBTX, g *model.Guest) (*model.Guest, error)
+}
+
+type activeBookingCounter interface {
+	CountActiveByGuestID(ctx context.Context, db repository.DBTX, guestID uuid.UUID) (int, error)
 }
 
 type GuestService struct {
 	pool        *pgxpool.Pool
 	guests      guestStore
+	bookings    activeBookingCounter
 	events      eventLookup
 	categories  categoryLookup
 	memberships membershipChecker
@@ -37,6 +45,7 @@ type GuestService struct {
 func NewGuestService(
 	pool *pgxpool.Pool,
 	guests guestStore,
+	bookings activeBookingCounter,
 	events eventLookup,
 	categories categoryLookup,
 	memberships membershipChecker,
@@ -44,6 +53,7 @@ func NewGuestService(
 	return &GuestService{
 		pool:        pool,
 		guests:      guests,
+		bookings:    bookings,
 		events:      events,
 		categories:  categories,
 		memberships: memberships,
@@ -132,6 +142,23 @@ func (s *GuestService) Create(ctx context.Context, actorID, eventID uuid.UUID, i
 		TicketCount: ticketCount,
 	}
 
+	softDeleted, err := s.guests.GetSoftDeletedByEventNameEmailCategory(ctx, s.pool, eventID, in.CategoryID, in.Name, in.Email)
+	if err == nil {
+		softDeleted.CategoryID = in.CategoryID
+		softDeleted.Name = in.Name
+		softDeleted.Email = in.Email
+		softDeleted.PaidDate = in.PaidDate
+		softDeleted.TicketCount = ticketCount
+		restored, err := s.guests.RestoreSoftDeleted(ctx, s.pool, softDeleted)
+		if err != nil {
+			return nil, fmt.Errorf("restore guest: %w", err)
+		}
+		return restored, nil
+	}
+	if !errors.Is(err, repository.ErrNotFound) {
+		return nil, fmt.Errorf("lookup soft deleted guest: %w", err)
+	}
+
 	created, err := s.guests.Create(ctx, s.pool, guest)
 	if err != nil {
 		return nil, fmt.Errorf("create guest: %w", err)
@@ -197,6 +224,30 @@ func (s *GuestService) ListByEventPaged(ctx context.Context, actorID, eventID uu
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+func (s *GuestService) CountUnbookedByEvent(ctx context.Context, actorID, eventID uuid.UUID) (int, error) {
+	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return 0, ErrEventNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get event: %w", err)
+	}
+
+	ok, err := s.memberships.IsMember(ctx, s.pool, actorID, event.OrganizationID)
+	if err != nil {
+		return 0, fmt.Errorf("check membership: %w", err)
+	}
+	if !ok {
+		return 0, ErrForbidden
+	}
+
+	total, err := s.guests.CountUnbookedByEventID(ctx, s.pool, eventID)
+	if err != nil {
+		return 0, fmt.Errorf("count unbooked guests: %w", err)
+	}
+	return total, nil
 }
 
 func (s *GuestService) Get(ctx context.Context, actorID, guestID uuid.UUID) (*model.Guest, error) {

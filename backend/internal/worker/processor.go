@@ -208,6 +208,43 @@ func (p *Processor) handleFinalizeSeating(ctx context.Context, job *model.Job) e
 		}
 	}
 
+	draftItems, err := p.drafts.ListItemsByDraftID(ctx, tx, draft.ID)
+	if err != nil {
+		failed = true
+		return fmt.Errorf("list draft items: %w", err)
+	}
+	if len(draftItems) == 0 {
+		hasApproved, approveErr := p.drafts.HasApprovedByEventID(ctx, tx, payload.EventID)
+		if approveErr != nil {
+			failed = true
+			return fmt.Errorf("check approved drafts: %w", approveErr)
+		}
+		if err := p.drafts.UpdateStatus(ctx, tx, draft.ID, model.SeatingDraftRejected); err != nil {
+			failed = true
+			return fmt.Errorf("reject empty draft: %w", err)
+		}
+		nextPhase := model.SeatingOpen
+		if hasApproved {
+			nextPhase = model.SeatingApproved
+		}
+		if err := p.events.UpdateSeatingPhase(ctx, tx, payload.EventID, nextPhase); err != nil {
+			failed = true
+			return fmt.Errorf("revert seating phase: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			failed = true
+			return fmt.Errorf("commit transaction: %w", err)
+		}
+
+		return fmt.Errorf(
+			"%w: %d unbooked guests, %d available seats, %d seat shortages",
+			service.ErrNoSeatingAssignments,
+			len(guests),
+			len(seatList),
+			shortfalls,
+		)
+	}
+
 	if err := p.events.UpdateSeatingPhase(ctx, tx, payload.EventID, model.SeatingPreview); err != nil {
 		failed = true
 		return fmt.Errorf("set seating preview: %w", err)

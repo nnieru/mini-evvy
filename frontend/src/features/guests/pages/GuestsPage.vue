@@ -121,7 +121,7 @@ async function onImportFile(event: Event) {
   try {
     const result = await importMutation.mutateAsync(file)
     importResult.value = result
-    message.value = `Import done: ${result.created} created, ${result.updated} updated, ${result.failed} failed`
+    message.value = `Import done: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${result.failed} failed`
   } catch (err) {
     error.value = getErrorMessage(err)
   }

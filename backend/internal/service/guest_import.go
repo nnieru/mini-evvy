@@ -47,8 +47,15 @@ type GuestImportRowError struct {
 type GuestImportResult struct {
 	Created int
 	Updated int
+	Skipped int
 	Failed  int
 	Errors  []GuestImportRowError
+}
+
+const guestImportSkipFullySeatedMsg = "Guest already fully seated from a prior wave; skipped. Edit ticket count on Guests to add more tickets."
+
+func shouldSkipFullySeatedImportOnApprovedWave(phase model.SeatingPhase, activeBookings, ticketCount int) bool {
+	return phase == model.SeatingApproved && activeBookings >= ticketCount
 }
 
 func parseGuestImportXLSX(data []byte) ([]guestImportRow, error) {
@@ -239,6 +246,37 @@ func (s *GuestService) Import(ctx context.Context, actorID, eventID uuid.UUID, f
 
 		existing, err := s.guests.GetByEventNameEmailCategory(ctx, tx, eventID, categoryID, row.Name, row.Email)
 		if errors.Is(err, repository.ErrNotFound) {
+			softDeleted, softErr := s.guests.GetSoftDeletedByEventNameEmailCategory(ctx, tx, eventID, categoryID, row.Name, row.Email)
+			if softErr == nil {
+				softDeleted.CategoryID = categoryID
+				softDeleted.Name = strings.TrimSpace(row.Name)
+				softDeleted.Email = strings.TrimSpace(row.Email)
+				softDeleted.TicketCount = row.TicketCount
+				if row.IsPaid {
+					softDeleted.PaidDate = row.OrderTime
+				} else {
+					softDeleted.PaidDate = nil
+				}
+				if _, err := s.guests.RestoreSoftDeleted(ctx, tx, softDeleted); err != nil {
+					result.Failed++
+					result.Errors = append(result.Errors, GuestImportRowError{
+						Row:     row.RowNumber,
+						Message: fmt.Sprintf("restore guest: %v", err),
+					})
+					continue
+				}
+				result.Created++
+				continue
+			}
+			if !errors.Is(softErr, repository.ErrNotFound) {
+				result.Failed++
+				result.Errors = append(result.Errors, GuestImportRowError{
+					Row:     row.RowNumber,
+					Message: fmt.Sprintf("lookup soft deleted guest: %v", softErr),
+				})
+				continue
+			}
+
 			guest := &model.Guest{
 				EventID:     eventID,
 				CategoryID:  categoryID,
@@ -267,6 +305,26 @@ func (s *GuestService) Import(ctx context.Context, actorID, eventID uuid.UUID, f
 				Message: fmt.Sprintf("lookup guest: %v", err),
 			})
 			continue
+		}
+
+		if event.SeatingPhase == model.SeatingApproved {
+			activeCount, countErr := s.bookings.CountActiveByGuestID(ctx, tx, existing.ID)
+			if countErr != nil {
+				result.Failed++
+				result.Errors = append(result.Errors, GuestImportRowError{
+					Row:     row.RowNumber,
+					Message: fmt.Sprintf("count bookings: %v", countErr),
+				})
+				continue
+			}
+			if shouldSkipFullySeatedImportOnApprovedWave(event.SeatingPhase, activeCount, existing.TicketCount) {
+				result.Skipped++
+				result.Errors = append(result.Errors, GuestImportRowError{
+					Row:     row.RowNumber,
+					Message: guestImportSkipFullySeatedMsg,
+				})
+				continue
+			}
 		}
 
 		existing.TicketCount += row.TicketCount
