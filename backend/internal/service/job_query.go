@@ -199,6 +199,10 @@ func (s *JobQueryService) ResendInvitation(ctx context.Context, actorID, booking
 		return nil, ErrForbidden
 	}
 
+	if event.SeatingPhase != model.SeatingApproved {
+		return nil, ErrSeatingNotApproved
+	}
+
 	guest, err := s.guests.GetByID(ctx, s.pool, booking.GuestID)
 	if errors.Is(err, repository.ErrNotFound) {
 		return nil, ErrGuestNotFound

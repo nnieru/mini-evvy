@@ -408,9 +408,9 @@ paths:
       tags: [Jobs]
       summary: Enqueue finalize seating job
       description: |
-        Owner/admin. Event must be in seating_phase `open`. Enqueues a job that assigns seats
-        to unbooked guests with barcodes (no emails). When the job completes, phase becomes
-        `preview`. Poll job status; when complete, review via seating-preview and approve or reject.
+        Owner/admin. Event must be in seating_phase `open`, `preview`, or `approved`.
+        Enqueues a job that assigns unbooked guests to draft items and holds seats (`held`).
+        When the job completes, phase becomes `preview`. Poll job status; review via seating-preview and approve or reject.
       operationId: finalizeSeating
       security:
         - bearerAuth: []
@@ -440,7 +440,7 @@ paths:
     get:
       tags: [Jobs]
       summary: Seating preview report
-      description: Org member. Available when seating_phase is `preview` or `approved`. Lists guest assignments.
+      description: Owner/admin. Requires an open seating draft. Lists draft seat assignments.
       operationId: getSeatingPreview
       security:
         - bearerAuth: []
@@ -467,7 +467,7 @@ paths:
     get:
       tags: [Jobs]
       summary: Export seating preview to Excel
-      description: Org member. Available when seating_phase is `preview` or `approved`. Exports all rows matching optional `q` (ignores pagination).
+      description: Owner/admin. Requires an open seating draft. Exports all draft rows matching optional `q` (ignores pagination).
       operationId: exportSeatingPreview
       security:
         - bearerAuth: []
@@ -492,8 +492,8 @@ paths:
   /events/{eventId}/seating-approve:
     post:
       tags: [Jobs]
-      summary: Approve seating preview
-      description: Owner/admin. Phase must be `preview`. Enqueues send_invitation for each active booking; sets phase `approved`.
+      summary: Approve seating draft
+      description: Owner/admin. Phase must be `preview`. Commits draft items to bookings, enqueues send_invitation for each, sets phase `approved`.
       operationId: approveSeating
       security:
         - bearerAuth: []
@@ -516,8 +516,8 @@ paths:
   /events/{eventId}/seating-reject:
     post:
       tags: [Jobs]
-      summary: Reject seating preview
-      description: Owner/admin. Phase must be `preview` or `approved`. Cancels pending/paid invited bookings, frees seats, sets phase `open`.
+      summary: Reject seating draft
+      description: Owner/admin. Requires an open seating draft. Releases held seats, marks draft rejected. Phase becomes `open` or stays `approved` if a prior wave was approved.
       operationId: rejectSeating
       security:
         - bearerAuth: []
@@ -536,6 +536,57 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/seating-draft/items/{itemId}:
+    patch:
+      tags: [Jobs]
+      summary: Reassign draft item seat
+      description: Owner/admin. Requires an open seating draft. Swaps held seat for another available seat in the same category.
+      operationId: reassignDraftItem
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seat_id]
+              properties:
+                seat_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Draft item or seat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Seat not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /events/{eventId}/jobs:
     get:
@@ -1332,7 +1383,7 @@ paths:
     post:
       tags: [Bookings]
       summary: Re-send invitation email
-      description: Org member. Booking must not be cancelled; guest must have email.
+      description: Org member. Event seating must be approved. Booking must not be cancelled; guest must have email.
       operationId: resendInvitation
       security:
         - bearerAuth: []
@@ -1357,6 +1408,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/BookingNotFound"
+        "409":
+          description: Seating not approved yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /bookings/{bookingId}/payments:
     post:
@@ -2969,7 +3026,7 @@ components:
     SeatingPreviewRow:
       type: object
       properties:
-        booking_id:
+        id:
           type: string
           format: uuid
         guest_name:
@@ -2978,6 +3035,9 @@ components:
           type: string
         seat_code:
           type: string
+        seat_id:
+          type: string
+          format: uuid
         category_name:
           type: string
         category_code:

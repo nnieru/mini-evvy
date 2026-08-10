@@ -12,25 +12,44 @@ import (
 	"github.com/nnieru/mini-evvy/internal/repository"
 )
 
+var (
+	ErrNoOpenDraft       = errors.New("no open seating draft")
+	ErrDraftItemNotFound = errors.New("seating draft item not found")
+)
+
+type seatingDraftStore interface {
+	Create(ctx context.Context, db repository.DBTX, draft *model.SeatingDraft) (*model.SeatingDraft, error)
+	GetOpenByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) (*model.SeatingDraft, error)
+	HasApprovedByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) (bool, error)
+	UpdateStatus(ctx context.Context, db repository.DBTX, draftID uuid.UUID, status model.SeatingDraftStatus) error
+	GetItemByID(ctx context.Context, db repository.DBTX, itemID uuid.UUID) (*model.SeatingDraftItem, error)
+	UpdateItemSeat(ctx context.Context, db repository.DBTX, itemID, seatID, categoryID uuid.UUID) error
+	ListItemsByDraftID(ctx context.Context, db repository.DBTX, draftID uuid.UUID) ([]model.SeatingDraftItem, error)
+	CountPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
+	ListPreviewPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.SeatingPreviewRow, error)
+	ListPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) ([]model.SeatingPreviewRow, error)
+}
+
+type seatingDraftSeatStore interface {
+	seatLookup
+	ClaimHeldFromAvailable(ctx context.Context, db repository.DBTX, seatID uuid.UUID) error
+	ReleaseHeld(ctx context.Context, db repository.DBTX, seatID uuid.UUID) error
+	TransitionHeldTo(ctx context.Context, db repository.DBTX, seatID uuid.UUID, status model.SeatStatus) error
+}
+
 type eventPhaseStore interface {
 	eventLookup
 	UpdateSeatingPhase(ctx context.Context, db repository.DBTX, eventID uuid.UUID, phase model.SeatingPhase) error
-}
-
-type seatingPreviewStore interface {
-	CountSeatingPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
-	ListSeatingPreviewPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.SeatingPreviewRow, error)
-	ListSeatingPreviewFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) ([]model.SeatingPreviewRow, error)
-	ListActiveByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.SeatBooking, error)
-	Update(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 }
 
 type FinalizeService struct {
 	pool        *pgxpool.Pool
 	jobs        jobStore
 	events      eventPhaseStore
-	bookings    seatingPreviewStore
-	seats       seatLookup
+	drafts      seatingDraftStore
+	bookings    bookingStore
+	guests      guestLookup
+	seats       seatingDraftSeatStore
 	memberships membershipChecker
 	jobEnqueue  *JobService
 }
@@ -39,8 +58,10 @@ func NewFinalizeService(
 	pool *pgxpool.Pool,
 	jobs jobStore,
 	events eventPhaseStore,
-	bookings seatingPreviewStore,
-	seats seatLookup,
+	drafts seatingDraftStore,
+	bookings bookingStore,
+	guests guestLookup,
+	seats seatingDraftSeatStore,
 	memberships membershipChecker,
 	jobEnqueue *JobService,
 ) *FinalizeService {
@@ -48,14 +69,16 @@ func NewFinalizeService(
 		pool:        pool,
 		jobs:        jobs,
 		events:      events,
+		drafts:      drafts,
 		bookings:    bookings,
+		guests:      guests,
 		seats:       seats,
 		memberships: memberships,
 		jobEnqueue:  jobEnqueue,
 	}
 }
 
-func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID uuid.UUID) (*model.Job, error) {
+func (s *FinalizeService) ensureOwnerAdmin(ctx context.Context, actorID, eventID uuid.UUID) (*model.Event, error) {
 	event, err := s.events.GetByID(ctx, s.pool, eventID)
 	if errors.Is(err, repository.ErrNotFound) {
 		return nil, ErrEventNotFound
@@ -72,7 +95,28 @@ func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID 
 		return nil, ErrForbidden
 	}
 
-	if event.SeatingPhase != model.SeatingOpen {
+	return event, nil
+}
+
+func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID uuid.UUID) (*model.Job, error) {
+	event, err := s.ensureOwnerAdmin(ctx, actorID, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, openErr := s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
+	hasOpenDraft := !errors.Is(openErr, repository.ErrNotFound)
+	if openErr != nil && !errors.Is(openErr, repository.ErrNotFound) {
+		return nil, fmt.Errorf("get open draft: %w", openErr)
+	}
+
+	switch event.SeatingPhase {
+	case model.SeatingOpen, model.SeatingApproved:
+	case model.SeatingPreview:
+		if !hasOpenDraft {
+			return nil, ErrSeatingNotPreview
+		}
+	default:
 		return nil, ErrSeatingNotOpen
 	}
 
@@ -96,24 +140,17 @@ func (s *FinalizeService) RequestFinalize(ctx context.Context, actorID, eventID 
 }
 
 func (s *FinalizeService) ensureSeatingPreviewAccess(ctx context.Context, actorID, eventID uuid.UUID) error {
-	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	_, err := s.ensureOwnerAdmin(ctx, actorID, eventID)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
 	if errors.Is(err, repository.ErrNotFound) {
-		return ErrEventNotFound
+		return ErrNoOpenDraft
 	}
 	if err != nil {
-		return fmt.Errorf("get event: %w", err)
-	}
-
-	ok, err := s.memberships.IsMember(ctx, s.pool, actorID, event.OrganizationID)
-	if err != nil {
-		return fmt.Errorf("check membership: %w", err)
-	}
-	if !ok {
-		return ErrForbidden
-	}
-
-	if event.SeatingPhase != model.SeatingPreview && event.SeatingPhase != model.SeatingApproved {
-		return ErrSeatingNotPreview
+		return fmt.Errorf("get open draft: %w", err)
 	}
 
 	return nil
@@ -125,12 +162,12 @@ func (s *FinalizeService) GetSeatingPreview(ctx context.Context, actorID, eventI
 	}
 
 	pq := repository.PageQuery{Page: page, PageSize: pageSize, Q: q}
-	total, err := s.bookings.CountSeatingPreviewFiltered(ctx, s.pool, eventID, q)
+	total, err := s.drafts.CountPreviewFiltered(ctx, s.pool, eventID, q)
 	if err != nil {
 		return nil, fmt.Errorf("count seating preview: %w", err)
 	}
 
-	rows, err := s.bookings.ListSeatingPreviewPaged(ctx, s.pool, eventID, pq)
+	rows, err := s.drafts.ListPreviewPaged(ctx, s.pool, eventID, pq)
 	if err != nil {
 		return nil, fmt.Errorf("list seating preview: %w", err)
 	}
@@ -148,7 +185,7 @@ func (s *FinalizeService) ExportSeatingPreview(ctx context.Context, actorID, eve
 		return nil, err
 	}
 
-	rows, err := s.bookings.ListSeatingPreviewFiltered(ctx, s.pool, eventID, q)
+	rows, err := s.drafts.ListPreviewFiltered(ctx, s.pool, eventID, q)
 	if err != nil {
 		return nil, fmt.Errorf("list seating preview: %w", err)
 	}
@@ -156,33 +193,166 @@ func (s *FinalizeService) ExportSeatingPreview(ctx context.Context, actorID, eve
 	return buildSeatingPreviewXLSX(rows)
 }
 
-func (s *FinalizeService) ApproveSeating(ctx context.Context, actorID, eventID uuid.UUID) error {
-	event, err := s.events.GetByID(ctx, s.pool, eventID)
-	if errors.Is(err, repository.ErrNotFound) {
-		return ErrEventNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("get event: %w", err)
+func (s *FinalizeService) GetOpenDraft(ctx context.Context, actorID, eventID uuid.UUID) (*model.SeatingDraft, error) {
+	if _, err := s.ensureOwnerAdmin(ctx, actorID, eventID); err != nil {
+		return nil, err
 	}
 
-	can, err := s.memberships.HasRole(ctx, s.pool, actorID, event.OrganizationID, model.RoleOwner, model.RoleAdmin)
-	if err != nil {
-		return fmt.Errorf("check role: %w", err)
+	draft, err := s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, ErrNoOpenDraft
 	}
-	if !can {
-		return ErrForbidden
+	if err != nil {
+		return nil, fmt.Errorf("get open draft: %w", err)
+	}
+	return draft, nil
+}
+
+func (s *FinalizeService) ReassignDraftItem(ctx context.Context, actorID, eventID, itemID, newSeatID uuid.UUID) error {
+	if _, err := s.ensureOwnerAdmin(ctx, actorID, eventID); err != nil {
+		return err
+	}
+
+	draft, err := s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrNoOpenDraft
+	}
+	if err != nil {
+		return fmt.Errorf("get open draft: %w", err)
+	}
+
+	item, err := s.drafts.GetItemByID(ctx, s.pool, itemID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrDraftItemNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get draft item: %w", err)
+	}
+	if item.DraftID != draft.ID {
+		return ErrDraftItemNotFound
+	}
+
+	newSeat, err := s.seats.GetByID(ctx, s.pool, newSeatID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrSeatNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get seat: %w", err)
+	}
+	if newSeat.EventID != eventID {
+		return ErrSeatNotFound
+	}
+	if newSeat.CategoryID != item.CategoryID {
+		return ErrCategoryMismatch
+	}
+	if newSeat.ID == item.SeatID {
+		return nil
+	}
+	if newSeat.Status != model.SeatAvailable {
+		return ErrSeatNotAvailable
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.seats.ReleaseHeld(ctx, tx, item.SeatID); err != nil {
+		return fmt.Errorf("release old seat: %w", err)
+	}
+	if err := s.seats.ClaimHeldFromAvailable(ctx, tx, newSeatID); err != nil {
+		return fmt.Errorf("claim new seat: %w", err)
+	}
+	if err := s.drafts.UpdateItemSeat(ctx, tx, itemID, newSeatID, newSeat.CategoryID); err != nil {
+		return fmt.Errorf("update draft item: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
+}
+
+func (s *FinalizeService) ApproveSeating(ctx context.Context, actorID, eventID uuid.UUID) error {
+	event, err := s.ensureOwnerAdmin(ctx, actorID, eventID)
+	if err != nil {
+		return err
 	}
 
 	if event.SeatingPhase != model.SeatingPreview {
 		return ErrSeatingNotPreview
 	}
 
-	bookings, err := s.bookings.ListActiveByEventID(ctx, s.pool, eventID)
+	draft, err := s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrNoOpenDraft
+	}
 	if err != nil {
-		return fmt.Errorf("list active bookings: %w", err)
+		return fmt.Errorf("get open draft: %w", err)
 	}
 
-	for _, booking := range bookings {
+	items, err := s.drafts.ListItemsByDraftID(ctx, s.pool, draft.ID)
+	if err != nil {
+		return fmt.Errorf("list draft items: %w", err)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var createdBookings []model.SeatBooking
+
+	for _, item := range items {
+		guest, err := s.guests.GetByID(ctx, tx, item.GuestID)
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrGuestNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("get guest: %w", err)
+		}
+
+		seatStatus := model.SeatReserved
+		booking := &model.SeatBooking{
+			GuestID:    item.GuestID,
+			EventID:    eventID,
+			CategoryID: item.CategoryID,
+			SeatID:     item.SeatID,
+			Source:     model.SourceInvited,
+			Status:     model.BookingPending,
+			CreatedBy:  actorID,
+		}
+		if guest.PaidDate != nil {
+			booking.Status = model.BookingPaid
+			booking.PaidAt = guest.PaidDate
+			seatStatus = model.SeatOccupied
+		}
+
+		if err := s.seats.TransitionHeldTo(ctx, tx, item.SeatID, seatStatus); err != nil {
+			return fmt.Errorf("transition seat %s: %w", item.SeatID, err)
+		}
+
+		created, err := createBookingWithBarcode(ctx, tx, s.bookings, booking)
+		if err != nil {
+			return fmt.Errorf("create booking: %w", err)
+		}
+		createdBookings = append(createdBookings, *created)
+	}
+
+	if err := s.drafts.UpdateStatus(ctx, tx, draft.ID, model.SeatingDraftApproved); err != nil {
+		return fmt.Errorf("approve draft: %w", err)
+	}
+	if err := s.events.UpdateSeatingPhase(ctx, tx, eventID, model.SeatingApproved); err != nil {
+		return fmt.Errorf("set seating approved: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	for _, booking := range createdBookings {
 		_, err := s.jobEnqueue.Enqueue(ctx, jobtype.SendInvitation, jobtype.SendInvitationPayload{
 			BookingID: booking.ID,
 			GuestID:   booking.GuestID,
@@ -193,32 +363,25 @@ func (s *FinalizeService) ApproveSeating(ctx context.Context, actorID, eventID u
 		}
 	}
 
-	if err := s.events.UpdateSeatingPhase(ctx, s.pool, eventID, model.SeatingApproved); err != nil {
-		return fmt.Errorf("set seating approved: %w", err)
-	}
-
 	return nil
 }
 
 func (s *FinalizeService) RejectSeating(ctx context.Context, actorID, eventID uuid.UUID) error {
-	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	if _, err := s.ensureOwnerAdmin(ctx, actorID, eventID); err != nil {
+		return err
+	}
+
+	draft, err := s.drafts.GetOpenByEventID(ctx, s.pool, eventID)
 	if errors.Is(err, repository.ErrNotFound) {
-		return ErrEventNotFound
+		return ErrNoOpenDraft
 	}
 	if err != nil {
-		return fmt.Errorf("get event: %w", err)
+		return fmt.Errorf("get open draft: %w", err)
 	}
 
-	can, err := s.memberships.HasRole(ctx, s.pool, actorID, event.OrganizationID, model.RoleOwner, model.RoleAdmin)
+	items, err := s.drafts.ListItemsByDraftID(ctx, s.pool, draft.ID)
 	if err != nil {
-		return fmt.Errorf("check role: %w", err)
-	}
-	if !can {
-		return ErrForbidden
-	}
-
-	if event.SeatingPhase != model.SeatingPreview && event.SeatingPhase != model.SeatingApproved {
-		return ErrSeatingNotPreview
+		return fmt.Errorf("list draft items: %w", err)
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -227,33 +390,27 @@ func (s *FinalizeService) RejectSeating(ctx context.Context, actorID, eventID uu
 	}
 	defer tx.Rollback(ctx)
 
-	bookings, err := s.bookings.ListActiveByEventID(ctx, tx, eventID)
+	for _, item := range items {
+		if err := s.seats.ReleaseHeld(ctx, tx, item.SeatID); err != nil {
+			return fmt.Errorf("release seat %s: %w", item.SeatID, err)
+		}
+	}
+
+	if err := s.drafts.UpdateStatus(ctx, tx, draft.ID, model.SeatingDraftRejected); err != nil {
+		return fmt.Errorf("reject draft: %w", err)
+	}
+
+	hasApproved, err := s.drafts.HasApprovedByEventID(ctx, tx, eventID)
 	if err != nil {
-		return fmt.Errorf("list active bookings: %w", err)
+		return fmt.Errorf("check approved drafts: %w", err)
 	}
 
-	for _, booking := range bookings {
-		if booking.Source != model.SourceInvited {
-			continue
-		}
-		if booking.Status != model.BookingPending && booking.Status != model.BookingPaid {
-			continue
-		}
-
-		booking.Status = model.BookingCancelled
-		updatedBy := actorID
-		booking.UpdatedBy = &updatedBy
-
-		if _, err := s.bookings.Update(ctx, tx, &booking); err != nil {
-			return fmt.Errorf("cancel booking: %w", err)
-		}
-		if err := s.seats.UpdateStatus(ctx, tx, booking.SeatID, model.SeatAvailable); err != nil {
-			return fmt.Errorf("free seat: %w", err)
-		}
+	nextPhase := model.SeatingOpen
+	if hasApproved {
+		nextPhase = model.SeatingApproved
 	}
-
-	if err := s.events.UpdateSeatingPhase(ctx, tx, eventID, model.SeatingOpen); err != nil {
-		return fmt.Errorf("set seating open: %w", err)
+	if err := s.events.UpdateSeatingPhase(ctx, tx, eventID, nextPhase); err != nil {
+		return fmt.Errorf("set seating phase: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -265,8 +422,16 @@ func (s *FinalizeService) RejectSeating(ctx context.Context, actorID, eventID uu
 
 // RevertSeatingToOpen resets phase after a failed finalize job (best-effort).
 func (s *FinalizeService) RevertSeatingToOpen(ctx context.Context, eventID uuid.UUID) {
-	if err := s.events.UpdateSeatingPhase(ctx, s.pool, eventID, model.SeatingOpen); err != nil {
-		// best-effort; worker logs separately
+	hasApproved, err := s.drafts.HasApprovedByEventID(ctx, s.pool, eventID)
+	if err != nil {
+		_ = err
+		hasApproved = false
+	}
+	nextPhase := model.SeatingOpen
+	if hasApproved {
+		nextPhase = model.SeatingApproved
+	}
+	if err := s.events.UpdateSeatingPhase(ctx, s.pool, eventID, nextPhase); err != nil {
 		_ = err
 	}
 }

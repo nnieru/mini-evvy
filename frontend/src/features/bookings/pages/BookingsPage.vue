@@ -111,6 +111,7 @@ const legendCategories = computed(() => {
 })
 
 const seatingLocked = computed(() => event.value?.seating_phase === 'preview')
+const seatingApproved = computed(() => event.value?.seating_phase === 'approved')
 
 const seatById = computed(() => {
   const map = new Map<string, Seat>()
@@ -208,16 +209,20 @@ const bookingColumns = computed<ColumnDef<BookingListItem>[]>(() => [
           ),
         )
       }
+      if (paid && seatingApproved.value) {
+        actions.push(
+          h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'secondary',
+              onClick: () => resend(id),
+            },
+            () => 'Resend invite',
+          ),
+        )
+      }
       actions.push(
-        h(
-          Button,
-          {
-            size: 'sm',
-            variant: 'secondary',
-            onClick: () => resend(id),
-          },
-          () => 'Resend invite',
-        ),
         h(
           Button,
           {
@@ -395,8 +400,8 @@ async function submitPayment() {
 
     <Alert v-if="message" tone="success" :title="message" />
     <Alert v-if="error" tone="error" :title="error" />
-    <Alert v-if="seatingLocked" tone="warning" title="Seating locked for review">
-      Finalize seating is in preview. Approve or reject on the Event overview page before creating new bookings.
+    <Alert v-if="seatingLocked" tone="warning" title="Seating draft open">
+      A seating draft is in review. Approve or reject on the Seating draft page before creating new bookings.
     </Alert>
 
     <section class="space-y-4 rounded-xl border border-border bg-surface-raised p-4">

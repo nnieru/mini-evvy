@@ -10,6 +10,7 @@ type SeatStatus string
 
 const (
 	SeatAvailable SeatStatus = "available"
+	SeatHeld      SeatStatus = "held"
 	SeatReserved  SeatStatus = "reserved"
 	SeatOccupied  SeatStatus = "occupied"
 	SeatBlocked   SeatStatus = "blocked"

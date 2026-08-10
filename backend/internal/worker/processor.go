@@ -16,11 +16,27 @@ import (
 	"github.com/nnieru/mini-evvy/internal/model"
 	"github.com/nnieru/mini-evvy/internal/repository"
 	"github.com/nnieru/mini-evvy/internal/service"
-	"github.com/nnieru/mini-evvy/internal/ticket"
 )
 
 type emailTemplateLoader interface {
 	GetByEventAndType(ctx context.Context, db repository.DBTX, eventID uuid.UUID, templateType string) (*model.EventEmailTemplate, error)
+}
+
+type seatingDraftWorkerStore interface {
+	Create(ctx context.Context, db repository.DBTX, draft *model.SeatingDraft) (*model.SeatingDraft, error)
+	GetOpenByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) (*model.SeatingDraft, error)
+	HasApprovedByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) (bool, error)
+	CreateItem(ctx context.Context, db repository.DBTX, item *model.SeatingDraftItem) (*model.SeatingDraftItem, error)
+	CountItemsByGuestID(ctx context.Context, db repository.DBTX, draftID, guestID uuid.UUID) (int, error)
+	ListItemsByDraftID(ctx context.Context, db repository.DBTX, draftID uuid.UUID) ([]model.SeatingDraftItem, error)
+	UpdateStatus(ctx context.Context, db repository.DBTX, draftID uuid.UUID, status model.SeatingDraftStatus) error
+}
+
+type seatingDraftSeatWorkerStore interface {
+	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.Seat, error)
+	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID, status *model.SeatStatus, categoryID *uuid.UUID) ([]model.Seat, error)
+	ClaimHeldFromAvailable(ctx context.Context, db repository.DBTX, seatID uuid.UUID) error
+	ReleaseHeld(ctx context.Context, db repository.DBTX, seatID uuid.UUID) error
 }
 
 const maxRetries = 3
@@ -29,9 +45,10 @@ type Processor struct {
 	pool       *pgxpool.Pool
 	jobs       *repository.JobRepo
 	guests     *repository.GuestRepo
-	seats      *repository.SeatRepo
+	seats      seatingDraftSeatWorkerStore
 	bookings   *repository.BookingRepo
 	events     *repository.EventRepo
+	drafts     seatingDraftWorkerStore
 	templates  emailTemplateLoader
 	jobEnqueue *service.JobService
 	mailer     mailer.Mailer
@@ -41,9 +58,10 @@ func NewProcessor(
 	pool *pgxpool.Pool,
 	jobs *repository.JobRepo,
 	guests *repository.GuestRepo,
-	seats *repository.SeatRepo,
+	seats seatingDraftSeatWorkerStore,
 	bookings *repository.BookingRepo,
 	events *repository.EventRepo,
+	drafts seatingDraftWorkerStore,
 	templates emailTemplateLoader,
 	jobEnqueue *service.JobService,
 	mailer mailer.Mailer,
@@ -55,6 +73,7 @@ func NewProcessor(
 		seats:      seats,
 		bookings:   bookings,
 		events:     events,
+		drafts:     drafts,
 		templates:  templates,
 		jobEnqueue: jobEnqueue,
 		mailer:     mailer,
@@ -79,9 +98,21 @@ func (p *Processor) handleFinalizeSeating(ctx context.Context, job *model.Job) e
 	}
 
 	var failed bool
+	var draftID uuid.UUID
 	defer func() {
+		if failed && draftID != uuid.Nil {
+			p.cleanupFailedDraft(ctx, draftID)
+		}
 		if failed {
-			if err := p.events.UpdateSeatingPhase(ctx, p.pool, payload.EventID, model.SeatingOpen); err != nil {
+			hasApproved, err := p.drafts.HasApprovedByEventID(ctx, p.pool, payload.EventID)
+			if err != nil {
+				hasApproved = false
+			}
+			nextPhase := model.SeatingOpen
+			if hasApproved {
+				nextPhase = model.SeatingApproved
+			}
+			if err := p.events.UpdateSeatingPhase(ctx, p.pool, payload.EventID, nextPhase); err != nil {
 				slog.Error("revert seating phase failed", "event_id", payload.EventID, "error", err)
 			}
 		}
@@ -105,16 +136,42 @@ func (p *Processor) handleFinalizeSeating(ctx context.Context, job *model.Job) e
 		pools[seat.CategoryID] = append(pools[seat.CategoryID], seat)
 	}
 
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		failed = true
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	draft, err := p.drafts.GetOpenByEventID(ctx, tx, payload.EventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		draft, err = p.drafts.Create(ctx, tx, &model.SeatingDraft{
+			EventID:   payload.EventID,
+			Status:    model.SeatingDraftOpen,
+			CreatedBy: payload.ActorID,
+		})
+	}
+	if err != nil {
+		failed = true
+		return fmt.Errorf("ensure open draft: %w", err)
+	}
+	draftID = draft.ID
+
 	var assigned int
 	var shortfalls int
 
 	for _, guest := range guests {
-		activeCount, err := p.bookings.CountActiveByGuestID(ctx, p.pool, guest.ID)
+		activeCount, err := p.bookings.CountActiveByGuestID(ctx, tx, guest.ID)
 		if err != nil {
 			failed = true
 			return fmt.Errorf("count active bookings: %w", err)
 		}
-		slotsNeeded := guest.TicketCount - activeCount
+		draftCount, err := p.drafts.CountItemsByGuestID(ctx, tx, draft.ID, guest.ID)
+		if err != nil {
+			failed = true
+			return fmt.Errorf("count draft items: %w", err)
+		}
+		slotsNeeded := guest.TicketCount - activeCount - draftCount
 		if slotsNeeded <= 0 {
 			continue
 		}
@@ -128,90 +185,65 @@ func (p *Processor) handleFinalizeSeating(ctx context.Context, job *model.Job) e
 			seat := pool[0]
 			pools[guest.CategoryID] = pool[1:]
 
-			_, err := p.createAssignedBooking(ctx, payload.EventID, payload.ActorID, guest, seat)
-			if err != nil {
+			if err := p.seats.ClaimHeldFromAvailable(ctx, tx, seat.ID); err != nil {
 				if errors.Is(err, repository.ErrSeatNotAvailable) {
 					shortfalls++
 					continue
 				}
 				failed = true
-				return fmt.Errorf("create assigned booking: %w", err)
+				return fmt.Errorf("hold seat: %w", err)
+			}
+
+			_, err := p.drafts.CreateItem(ctx, tx, &model.SeatingDraftItem{
+				DraftID:    draft.ID,
+				GuestID:    guest.ID,
+				SeatID:     seat.ID,
+				CategoryID: seat.CategoryID,
+			})
+			if err != nil {
+				failed = true
+				return fmt.Errorf("create draft item: %w", err)
 			}
 			assigned++
 		}
 	}
 
-	slog.Info("finalize seating complete",
-		"event_id", payload.EventID,
-		"assigned", assigned,
-		"shortfalls", shortfalls,
-	)
-
-	if err := p.events.UpdateSeatingPhase(ctx, p.pool, payload.EventID, model.SeatingPreview); err != nil {
+	if err := p.events.UpdateSeatingPhase(ctx, tx, payload.EventID, model.SeatingPreview); err != nil {
 		failed = true
 		return fmt.Errorf("set seating preview: %w", err)
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		failed = true
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	slog.Info("finalize seating complete",
+		"event_id", payload.EventID,
+		"draft_id", draftID,
+		"assigned", assigned,
+		"shortfalls", shortfalls,
+	)
+
 	return nil
 }
 
-func (p *Processor) createAssignedBooking(ctx context.Context, eventID, actorID uuid.UUID, guest model.Guest, seat model.Seat) (*model.SeatBooking, error) {
-	if guest.CategoryID != seat.CategoryID {
-		return nil, fmt.Errorf("create assigned booking: %w", service.ErrCategoryMismatch)
-	}
-
+func (p *Processor) cleanupFailedDraft(ctx context.Context, draftID uuid.UUID) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin transaction: %w", err)
+		return
 	}
 	defer tx.Rollback(ctx)
 
-	seatStatus := model.SeatReserved
-	booking := &model.SeatBooking{
-		GuestID:    guest.ID,
-		EventID:    eventID,
-		CategoryID: seat.CategoryID,
-		SeatID:     seat.ID,
-		Source:     model.SourceInvited,
-		Status:     model.BookingPending,
-		CreatedBy:  actorID,
+	items, err := p.drafts.ListItemsByDraftID(ctx, tx, draftID)
+	if err != nil {
+		return
 	}
-	if guest.PaidDate != nil {
-		booking.Status = model.BookingPaid
-		booking.PaidAt = guest.PaidDate
-		seatStatus = model.SeatOccupied
+	for _, item := range items {
+		_ = p.seats.ReleaseHeld(ctx, tx, item.SeatID)
 	}
-
-	if err := p.seats.ClaimFromAvailable(ctx, tx, seat.ID, seatStatus); err != nil {
-		return nil, err
-	}
-
-	var created *model.SeatBooking
-	for attempt := 0; attempt < 2; attempt++ {
-		barcode, err := ticket.GenerateBarcode()
-		if err != nil {
-			return nil, err
-		}
-		booking.Barcode = &barcode
-
-		created, err = p.bookings.Create(ctx, tx, booking)
-		if err == nil {
-			break
-		}
-		if isUniqueViolation(err) && attempt == 0 {
-			continue
-		}
-		return nil, fmt.Errorf("create booking: %w", err)
-	}
-	if created == nil {
-		return nil, fmt.Errorf("create booking failed after retries")
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit transaction: %w", err)
-	}
-
-	return created, nil
+	_ = p.drafts.UpdateStatus(ctx, tx, draftID, model.SeatingDraftRejected)
+	_ = tx.Commit(ctx)
 }
 
 func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) error {
@@ -251,6 +283,10 @@ func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) er
 	}
 	if err != nil {
 		return fmt.Errorf("get event: %w", err)
+	}
+	if event.SeatingPhase != model.SeatingApproved {
+		slog.Info("skip invitation: seating not approved", "event_id", payload.EventID, "phase", event.SeatingPhase)
+		return nil
 	}
 
 	seat, err := p.seats.GetByID(ctx, p.pool, booking.SeatID)

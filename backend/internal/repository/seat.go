@@ -318,3 +318,39 @@ func (r *SeatRepo) ClaimFromAvailable(ctx context.Context, db DBTX, seatID uuid.
 	}
 	return nil
 }
+
+func (r *SeatRepo) ClaimHeldFromAvailable(ctx context.Context, db DBTX, seatID uuid.UUID) error {
+	return r.ClaimFromAvailable(ctx, db, seatID, model.SeatHeld)
+}
+
+func (r *SeatRepo) ReleaseHeld(ctx context.Context, db DBTX, seatID uuid.UUID) error {
+	const query = `
+		UPDATE seats SET status = $1, updated_at = now()
+		WHERE id = $2 AND status = $3 AND deleted_at IS NULL
+	`
+
+	tag, err := db.Exec(ctx, query, model.SeatAvailable, seatID, model.SeatHeld)
+	if err != nil {
+		return fmt.Errorf("release held seat: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSeatNotAvailable
+	}
+	return nil
+}
+
+func (r *SeatRepo) TransitionHeldTo(ctx context.Context, db DBTX, seatID uuid.UUID, status model.SeatStatus) error {
+	const query = `
+		UPDATE seats SET status = $1, updated_at = now()
+		WHERE id = $2 AND status = $3 AND deleted_at IS NULL
+	`
+
+	tag, err := db.Exec(ctx, query, status, seatID, model.SeatHeld)
+	if err != nil {
+		return fmt.Errorf("transition held seat: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSeatNotAvailable
+	}
+	return nil
+}

@@ -36,10 +36,11 @@ export function finalizeSeating(eventId: string, token: string) {
 }
 
 export type SeatingPreviewRow = {
-  booking_id: string
+  id: string
   guest_name: string
   guest_email: string
   seat_code: string
+  seat_id: string
   category_name: string
   category_code?: string | null
   section?: string | null

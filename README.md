@@ -44,8 +44,27 @@ Quote URLs that contain `&` in `.env`.
 
 ### Database
 
+Install [golang-migrate](https://github.com/golang-migrate/migrate) once (`brew install golang-migrate`).
+
+Run all pending migrations:
+
 ```bash
 cd backend
+./scripts/migrate.sh up
+```
+
+Other commands:
+
+```bash
+./scripts/migrate.sh version   # current schema version
+./scripts/migrate.sh down 1    # roll back one migration
+```
+
+Uses `MIGRATE_DATABASE_URL` from `backend/.env` (falls back to `DATABASE_URL`). Prefer a direct Postgres URL for migrations, not a pooler URL.
+
+Manual equivalent:
+
+```bash
 migrate -path migrations -database "$MIGRATE_DATABASE_URL" up
 ```
 

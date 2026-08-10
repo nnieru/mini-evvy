@@ -24,6 +24,7 @@ const allEventNavItems = [
   { label: 'Categories', to: (id: string) => `/events/${id}/categories`, staffOnly: true },
   { label: 'Seats', to: (id: string) => `/events/${id}/seats`, staffOnly: true },
   { label: 'Guests', to: (id: string) => `/events/${id}/guests`, staffOnly: false },
+  { label: 'Seating draft', to: (id: string) => `/events/${id}/seating-draft`, staffOnly: true },
   { label: 'Bookings', to: (id: string) => `/events/${id}/bookings`, staffOnly: false },
   { label: 'Check-in', to: (id: string) => `/events/${id}/attendance`, staffOnly: false },
   { label: 'Jobs', to: (id: string) => `/events/${id}/jobs`, staffOnly: true },

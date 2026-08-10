@@ -65,6 +65,12 @@ const router = createRouter({
           component: () => import('@/features/guests/pages/GuestsPage.vue'),
         },
         {
+          path: 'events/:eventId/seating-draft',
+          name: 'event-seating-draft',
+          component: () => import('@/features/seating-draft/pages/SeatingDraftPage.vue'),
+          meta: { staffOnly: true },
+        },
+        {
           path: 'events/:eventId/bookings',
           name: 'event-bookings',
           component: () => import('@/features/bookings/pages/BookingsPage.vue'),

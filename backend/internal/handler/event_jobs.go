@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -139,6 +140,49 @@ func (h *EventJobsHandler) RejectSeating(w http.ResponseWriter, r *http.Request)
 	httpx.OK(w, http.StatusOK, map[string]string{"status": "open"})
 }
 
+type reassignDraftItemRequest struct {
+	SeatID string `json:"seat_id"`
+}
+
+func (h *EventJobsHandler) ReassignDraftItem(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Fail(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing user credentials")
+		return
+	}
+
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventId"))
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid event ID")
+		return
+	}
+
+	itemID, err := uuid.Parse(chi.URLParam(r, "itemId"))
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid draft item ID")
+		return
+	}
+
+	var body reassignDraftItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+
+	seatID, err := uuid.Parse(body.SeatID)
+	if err != nil {
+		httpx.Fail(w, http.StatusBadRequest, "BAD_REQUEST", "invalid seat ID")
+		return
+	}
+
+	if err := h.finalize.ReassignDraftItem(r.Context(), userID, eventID, itemID, seatID); err != nil {
+		h.writeSeatingErr(w, err)
+		return
+	}
+
+	httpx.OK(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 func (h *EventJobsHandler) writeFinalizeErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrEventNotFound):
@@ -162,6 +206,16 @@ func (h *EventJobsHandler) writeSeatingErr(w http.ResponseWriter, err error) {
 		httpx.Fail(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 	case errors.Is(err, service.ErrSeatingNotPreview):
 		httpx.Fail(w, http.StatusNotFound, "SEATING_PREVIEW_NOT_AVAILABLE", err.Error())
+	case errors.Is(err, service.ErrNoOpenDraft):
+		httpx.Fail(w, http.StatusNotFound, "NO_OPEN_DRAFT", err.Error())
+	case errors.Is(err, service.ErrDraftItemNotFound):
+		httpx.Fail(w, http.StatusNotFound, "DRAFT_ITEM_NOT_FOUND", err.Error())
+	case errors.Is(err, service.ErrSeatNotFound):
+		httpx.Fail(w, http.StatusNotFound, "SEAT_NOT_FOUND", err.Error())
+	case errors.Is(err, service.ErrSeatNotAvailable):
+		httpx.Fail(w, http.StatusConflict, "SEAT_NOT_AVAILABLE", err.Error())
+	case errors.Is(err, service.ErrCategoryMismatch):
+		httpx.Fail(w, http.StatusBadRequest, "CATEGORY_MISMATCH", err.Error())
 	default:
 		httpx.Fail(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 	}

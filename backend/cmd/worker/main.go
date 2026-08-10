@@ -73,6 +73,7 @@ func main() {
 		seatRepo,
 		bookingRepo,
 		eventRepo,
+		repository.NewSeatingDraftRepo(pool),
 		emailTemplateRepo,
 		jobService,
 		mailerClient,

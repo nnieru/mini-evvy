@@ -86,7 +86,8 @@ func main() {
 
 	jobQueryService := service.NewJobQueryService(pool, jobRepo, bookingRepo, guestRepo, eventRepo, userRoleRepo, jobService)
 	jobHandler := handler.NewJobHandler(jobQueryService)
-	finalizeService := service.NewFinalizeService(pool, jobRepo, eventRepo, bookingRepo, seatRepo, userRoleRepo, jobService)
+	seatingDraftRepo := repository.NewSeatingDraftRepo(pool)
+	finalizeService := service.NewFinalizeService(pool, jobRepo, eventRepo, seatingDraftRepo, bookingRepo, guestRepo, seatRepo, userRoleRepo, jobService)
 	eventJobsHandler := handler.NewEventJobsHandler(finalizeService)
 
 	bookingHandler := handler.NewBookingHandler(bookingService, jobQueryService)
@@ -176,6 +177,7 @@ func main() {
 		r.Get("/events/{eventId}/seating-preview", eventJobsHandler.GetSeatingPreview)
 		r.Post("/events/{eventId}/seating-approve", eventJobsHandler.ApproveSeating)
 		r.Post("/events/{eventId}/seating-reject", eventJobsHandler.RejectSeating)
+		r.Patch("/events/{eventId}/seating-draft/items/{itemId}", eventJobsHandler.ReassignDraftItem)
 		r.Get("/events/{eventId}/jobs", jobHandler.ListByEvent)
 
 		r.Get("/events/{eventId}/email-template/invitation", emailTemplateHandler.GetInvitation)

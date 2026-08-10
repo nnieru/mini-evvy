@@ -3,10 +3,11 @@ package dto
 import "github.com/nnieru/mini-evvy/internal/model"
 
 type SeatingPreviewRowDTO struct {
-	BookingID    string  `json:"booking_id"`
+	ID           string  `json:"id"`
 	GuestName    string  `json:"guest_name"`
 	GuestEmail   string  `json:"guest_email"`
 	SeatCode     string  `json:"seat_code"`
+	SeatID       string  `json:"seat_id"`
 	CategoryName string  `json:"category_name"`
 	CategoryCode *string `json:"category_code,omitempty"`
 	Section      *string `json:"section,omitempty"`
@@ -14,10 +15,11 @@ type SeatingPreviewRowDTO struct {
 
 func NewSeatingPreviewRowDTO(row model.SeatingPreviewRow) SeatingPreviewRowDTO {
 	return SeatingPreviewRowDTO{
-		BookingID:    row.BookingID.String(),
+		ID:           row.DraftItemID.String(),
 		GuestName:    row.GuestName,
 		GuestEmail:   row.GuestEmail,
 		SeatCode:     row.SeatCode,
+		SeatID:       row.SeatID.String(),
 		CategoryName: row.CategoryName,
 		CategoryCode: row.CategoryCode,
 		Section:      row.Section,

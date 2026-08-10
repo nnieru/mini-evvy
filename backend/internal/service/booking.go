@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nnieru/mini-evvy/internal/model"
 	"github.com/nnieru/mini-evvy/internal/repository"
-	"github.com/nnieru/mini-evvy/internal/jobtype"
 )
 
 var (
@@ -626,25 +625,7 @@ func (s *BookingService) Update(ctx context.Context, actorID, bookingID uuid.UUI
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	if in.Status == model.BookingPaid && !wasPaid {
-		s.enqueueInvitation(ctx, updated)
-	}
-
 	return updated, nil
-}
-
-func (s *BookingService) enqueueInvitation(ctx context.Context, booking *model.SeatBooking) {
-	if s.jobEnqueue == nil {
-		return
-	}
-	_, err := s.jobEnqueue.Enqueue(ctx, jobtype.SendInvitation, jobtype.SendInvitationPayload{
-		BookingID: booking.ID,
-		GuestID:   booking.GuestID,
-		EventID:   booking.EventID,
-	})
-	if err != nil {
-		_ = err
-	}
 }
 
 func (s *BookingService) Delete(ctx context.Context, actorID, bookingID uuid.UUID) error {
