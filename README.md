@@ -339,7 +339,7 @@ nc -zv evvy.fun 443   # must succeed for https://
 
 ### TLS
 
-[`frontend/Caddyfile`](frontend/Caddyfile) uses `evvy.fun` and `www.evvy.fun`; Caddy requests Let's Encrypt certificates automatically. [`docker-compose.yml`](docker-compose.yml) maps **443** on the `frontend` service.
+[`frontend/Caddyfile`](frontend/Caddyfile) uses `evvy.fun`, `www.evvy.fun`, and `kuma.evvy.fun`; Caddy requests Let's Encrypt certificates automatically. [`docker-compose.yml`](docker-compose.yml) maps **443** on the `frontend` service and mounts named volumes `caddy_data` / `caddy_config` so certs survive recreate/redeploy.
 
 After DNS works, rebuild and redeploy the **frontend** image, then:
 
@@ -350,6 +350,8 @@ sudo docker compose up -d frontend
 ```
 
 Test: `curl -I https://evvy.fun/mini-evvy/api/health`
+
+**Rate limit (`HTTP 429` / too many certificates):** Let's Encrypt allows only **5 new certs per exact hostname set per 168h**. If the frontend container was recreated without persistent `/data`, Caddy keeps minting new certs and gets blocked. Fix: keep the `caddy_data` / `caddy_config` volumes (above), then wait until the `retry after` time in the logs (do not keep restarting frontend hoping it helps). HTTP still works via `auto_https disable_redirects` while waiting.
 
 ### Local Docker smoke test
 
