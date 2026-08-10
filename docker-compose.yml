@@ -10,7 +10,7 @@ services:
   worker:
     image: ghcr.io/${GHCR_OWNER}/mini-evvy-worker:latest
     env_file: .env
-    mem_limit: 128m
+    mem_limit: c
     restart: unless-stopped
 
   frontend:
@@ -24,10 +24,7 @@ services:
       # and hits the 5-certs-per-hostname / 168h rate limit.
       - caddy_data:/data
       - caddy_config:/config
-    mem_limit: 64m
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
+    mem_limit: 128m
     restart: unless-stopped
     depends_on:
       - api
