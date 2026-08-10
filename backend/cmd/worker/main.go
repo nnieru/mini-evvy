@@ -81,6 +81,12 @@ func main() {
 
 	slog.Info("worker started")
 
+	if n, err := jobRepo.ReclaimInProcessJobs(ctx, pool); err != nil {
+		slog.Error("reclaim in process jobs failed", "error", err)
+	} else if n > 0 {
+		slog.Info("reclaimed in process jobs", "count", n)
+	}
+
 	go runUnpaidExpiry(ctx, bookingService)
 
 	for {

@@ -398,6 +398,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/events/{eventId}/jobs/invitation-emails/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export invitation email jobs
+         * @description Owner/admin. Excel report of send_invitation jobs with guest, seat, and ticket details.
+         */
+        get: operations["exportInvitationEmails"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events/{eventId}/email-template/invitation": {
         parameters: {
             query?: never;
@@ -1183,6 +1203,12 @@ export interface components {
             /** Format: date-time */
             paid_at?: string | null;
             barcode?: string | null;
+            /** @enum {string} */
+            invitation_email_status?: "not_sent" | "pending" | "sent" | "failed";
+            /** Format: date-time */
+            invitation_email_sent_at?: string | null;
+            /** Format: date-time */
+            invitation_resend_available_at?: string | null;
             /** Format: uuid */
             created_by?: string;
             /** Format: uuid */
@@ -2301,6 +2327,8 @@ export interface operations {
                 page_size?: components["parameters"]["pageSize"];
                 /** @description Case-insensitive search across list-specific fields. */
                 q?: components["parameters"]["searchQ"];
+                type?: "finalize_seating" | "send_invitation";
+                status?: "pending" | "in_process" | "done" | "failed";
             };
             header?: never;
             path: {
@@ -2317,6 +2345,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedJobListEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["EventNotFound"];
+        };
+    };
+    exportInvitationEmails: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive search across list-specific fields. */
+                q?: components["parameters"]["searchQ"];
+                status?: "pending" | "in_process" | "done" | "failed";
+            };
+            header?: never;
+            path: {
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Excel file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
             401: components["responses"]["Unauthorized"];

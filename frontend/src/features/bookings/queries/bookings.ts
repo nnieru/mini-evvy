@@ -76,9 +76,13 @@ export function useDeleteBookingMutation(eventId: Ref<string>) {
   })
 }
 
-export function useResendInvitationMutation() {
+export function useResendInvitationMutation(eventId: Ref<string>) {
   const auth = useAuthStore()
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (bookingId: string) => resendInvitation(bookingId, auth.token!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookings', eventId.value] })
+    },
   })
 }

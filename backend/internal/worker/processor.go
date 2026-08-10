@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -298,6 +299,7 @@ func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) er
 		return fmt.Errorf("get booking: %w", err)
 	}
 	if booking.Status == model.BookingCancelled {
+		p.failInvitationIfPending(ctx, booking)
 		slog.Info("skip invitation: booking cancelled", "booking_id", payload.BookingID)
 		return nil
 	}
@@ -310,6 +312,7 @@ func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) er
 		return fmt.Errorf("get guest: %w", err)
 	}
 	if guest.Email == "" {
+		p.failInvitationIfPending(ctx, booking)
 		slog.Info("skip invitation: guest email empty", "guest_id", payload.GuestID)
 		return nil
 	}
@@ -322,6 +325,7 @@ func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) er
 		return fmt.Errorf("get event: %w", err)
 	}
 	if event.SeatingPhase != model.SeatingApproved {
+		p.failInvitationIfPending(ctx, booking)
 		slog.Info("skip invitation: seating not approved", "event_id", payload.EventID, "phase", event.SeatingPhase)
 		return nil
 	}
@@ -355,11 +359,24 @@ func (p *Processor) handleSendInvitation(ctx context.Context, job *model.Job) er
 	}
 
 	if err := p.mailer.Send(ctx, guest.Email, rendered.Subject, rendered.Text, rendered.HTML, rendered.Attachments...); err != nil {
+		_ = p.bookings.UpdateInvitationEmailResult(ctx, p.pool, booking.ID, model.InvitationEmailFailed, booking.InvitationEmailSentAt)
 		slog.Error("resend send failed", "job_type", jobtype.SendInvitation, "to", guest.Email, "error", err)
 		return fmt.Errorf("send invitation email: %w", err)
 	}
 
+	sentAt := time.Now()
+	if err := p.bookings.UpdateInvitationEmailResult(ctx, p.pool, booking.ID, model.InvitationEmailSent, &sentAt); err != nil {
+		return fmt.Errorf("mark invitation sent: %w", err)
+	}
+
 	return nil
+}
+
+func (p *Processor) failInvitationIfPending(ctx context.Context, booking *model.SeatBooking) {
+	if booking.InvitationEmailStatus != model.InvitationEmailPending {
+		return
+	}
+	_ = p.bookings.UpdateInvitationEmailResult(ctx, p.pool, booking.ID, model.InvitationEmailFailed, booking.InvitationEmailSentAt)
 }
 
 func isUniqueViolation(err error) bool {

@@ -327,6 +327,10 @@ func (h *BookingHandler) writeResendErr(w http.ResponseWriter, err error) {
 		httpx.Fail(w, http.StatusBadRequest, "BOOKING_NOT_RESENDABLE", err.Error())
 	case errors.Is(err, service.ErrSeatingNotApproved):
 		httpx.Fail(w, http.StatusConflict, "SEATING_NOT_APPROVED", err.Error())
+	case errors.Is(err, service.ErrInvitationSendInProgress):
+		httpx.Fail(w, http.StatusConflict, "INVITATION_SEND_IN_PROGRESS", err.Error())
+	case errors.Is(err, service.ErrInvitationResendTooSoon):
+		httpx.Fail(w, http.StatusConflict, "INVITATION_RESEND_TOO_SOON", err.Error())
 	case errors.Is(err, service.ErrForbidden):
 		httpx.Fail(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 	default:

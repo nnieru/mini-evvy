@@ -638,6 +638,16 @@ paths:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
         - $ref: "#/components/parameters/searchQ"
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [finalize_seating, send_invitation]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_process, done, failed]
       responses:
         "200":
           description: OK
@@ -645,6 +655,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaginatedJobListEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/jobs/invitation-emails/export:
+    get:
+      tags: [Jobs]
+      summary: Export invitation email jobs
+      description: Owner/admin. Excel report of send_invitation jobs with guest, seat, and ticket details.
+      operationId: exportInvitationEmails
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+        - $ref: "#/components/parameters/searchQ"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_process, done, failed]
+      responses:
+        "200":
+          description: Excel file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2458,6 +2499,17 @@ components:
           nullable: true
         barcode:
           type: string
+          nullable: true
+        invitation_email_status:
+          type: string
+          enum: [not_sent, pending, sent, failed]
+        invitation_email_sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        invitation_resend_available_at:
+          type: string
+          format: date-time
           nullable: true
         created_by:
           type: string

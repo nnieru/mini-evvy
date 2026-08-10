@@ -6,6 +6,7 @@ import { useUiStore } from '@/app/stores/ui'
 import { useMediaQuery } from '@/shared/composables/useMediaQuery'
 import { useEventOrgRole } from '@/features/organizations/composables/useEventOrgRole'
 import Button from '@/shared/ui/Button.vue'
+import ToastHost from '@/shared/ui/ToastHost.vue'
 import { cn } from '@/shared/lib/cn'
 
 const route = useRoute()
@@ -112,5 +113,6 @@ function closeSidebarOnNavigate() {
         <RouterView />
       </main>
     </div>
+    <ToastHost />
   </div>
 </template>

@@ -16,8 +16,11 @@ type BookingListItemDTO struct {
 	Status        string     `json:"status"`
 	Notes         *string    `json:"notes,omitempty"`
 	PaidAt        *time.Time `json:"paid_at,omitempty"`
-	Barcode       *string    `json:"barcode,omitempty"`
-	CreatedBy     string     `json:"created_by"`
+	Barcode                     *string    `json:"barcode,omitempty"`
+	InvitationEmailStatus       string     `json:"invitation_email_status"`
+	InvitationEmailSentAt       *time.Time `json:"invitation_email_sent_at,omitempty"`
+	InvitationResendAvailableAt *time.Time `json:"invitation_resend_available_at,omitempty"`
+	CreatedBy                   string     `json:"created_by"`
 	UpdatedBy     *string    `json:"updated_by,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
@@ -53,8 +56,11 @@ func NewBookingListItemDTO(row *model.BookingListRow) BookingListItemDTO {
 		Status:       base.Status,
 		Notes:        base.Notes,
 		PaidAt:       base.PaidAt,
-		Barcode:      base.Barcode,
-		CreatedBy:    base.CreatedBy,
+		Barcode:                     base.Barcode,
+		InvitationEmailStatus:       base.InvitationEmailStatus,
+		InvitationEmailSentAt:       base.InvitationEmailSentAt,
+		InvitationResendAvailableAt: base.InvitationResendAvailableAt,
+		CreatedBy:                   base.CreatedBy,
 		UpdatedBy:    base.UpdatedBy,
 		CreatedAt:    base.CreatedAt,
 		UpdatedAt:    base.UpdatedAt,

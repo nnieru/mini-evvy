@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,8 +24,9 @@ var (
 type jobQueryStore interface {
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.Job, error)
 	ListByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) ([]model.Job, error)
-	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q string) (int, error)
-	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, pq repository.PageQuery) ([]model.Job, error)
+	CountByEventIDFiltered(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.JobListQuery) (int, error)
+	ListByEventIDPaged(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.JobListQuery) ([]model.Job, error)
+	ListInvitationReportByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID, q repository.JobListQuery) ([]model.InvitationEmailReportRow, error)
 }
 
 type jobEnqueuer interface {
@@ -33,6 +35,7 @@ type jobEnqueuer interface {
 
 type resendBookingLookup interface {
 	GetByID(ctx context.Context, db repository.DBTX, id uuid.UUID) (*model.SeatBooking, error)
+	invitationEmailStatusStore
 }
 
 type JobQueryService struct {
@@ -101,7 +104,12 @@ func (s *JobQueryService) ListByEvent(ctx context.Context, actorID, eventID uuid
 	return list, nil
 }
 
-func (s *JobQueryService) ListByEventPaged(ctx context.Context, actorID, eventID uuid.UUID, page, pageSize int, q string) (*PagedResult[model.Job], error) {
+func (s *JobQueryService) ListByEventPaged(
+	ctx context.Context,
+	actorID, eventID uuid.UUID,
+	page, pageSize int,
+	q, jobType, status string,
+) (*PagedResult[model.Job], error) {
 	event, err := s.events.GetByID(ctx, s.pool, eventID)
 	if errors.Is(err, repository.ErrNotFound) {
 		return nil, ErrEventNotFound
@@ -118,13 +126,19 @@ func (s *JobQueryService) ListByEventPaged(ctx context.Context, actorID, eventID
 		return nil, ErrForbidden
 	}
 
-	pq := repository.PageQuery{Page: page, PageSize: pageSize, Q: q}
-	total, err := s.jobs.CountByEventIDFiltered(ctx, s.pool, eventID, q)
+	listQuery := repository.JobListQuery{
+		Page:     page,
+		PageSize: pageSize,
+		Q:        q,
+		Type:     jobType,
+		Status:   status,
+	}
+	total, err := s.jobs.CountByEventIDFiltered(ctx, s.pool, eventID, listQuery)
 	if err != nil {
 		return nil, fmt.Errorf("count jobs: %w", err)
 	}
 
-	list, err := s.jobs.ListByEventIDPaged(ctx, s.pool, eventID, pq)
+	list, err := s.jobs.ListByEventIDPaged(ctx, s.pool, eventID, listQuery)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
 	}
@@ -135,6 +149,39 @@ func (s *JobQueryService) ListByEventPaged(ctx context.Context, actorID, eventID
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+func (s *JobQueryService) ExportInvitationEmails(
+	ctx context.Context,
+	actorID, eventID uuid.UUID,
+	q, status string,
+) ([]byte, error) {
+	event, err := s.events.GetByID(ctx, s.pool, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, ErrEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get event: %w", err)
+	}
+
+	ok, err := s.memberships.HasRole(ctx, s.pool, actorID, event.OrganizationID, model.RoleOwner, model.RoleAdmin)
+	if err != nil {
+		return nil, fmt.Errorf("check role: %w", err)
+	}
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	rows, err := s.jobs.ListInvitationReportByEventID(ctx, s.pool, eventID, repository.JobListQuery{
+		Q:      q,
+		Status: status,
+		Type:   jobtype.SendInvitation,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list invitation report: %w", err)
+	}
+
+	return buildInvitationEmailReportXLSX(rows)
 }
 
 func (s *JobQueryService) Get(ctx context.Context, actorID, jobID uuid.UUID) (*model.Job, error) {
@@ -215,13 +262,13 @@ func (s *JobQueryService) ResendInvitation(ctx context.Context, actorID, booking
 		return nil, ErrGuestEmailMissing
 	}
 
-	job, err := s.enqueue.Enqueue(ctx, jobtype.SendInvitation, jobtype.SendInvitationPayload{
-		BookingID: booking.ID,
-		GuestID:   booking.GuestID,
-		EventID:   booking.EventID,
-	})
+	if err := validateInvitationResend(booking, time.Now()); err != nil {
+		return nil, err
+	}
+
+	job, err := enqueueInvitationEmail(ctx, s.pool, s.bookings, s.enqueue, booking)
 	if err != nil {
-		return nil, fmt.Errorf("enqueue send invitation: %w", err)
+		return nil, err
 	}
 
 	return job, nil

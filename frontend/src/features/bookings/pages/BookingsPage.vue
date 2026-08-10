@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useQueryClient } from '@tanstack/vue-query'
 import type { ColumnDef } from '@tanstack/vue-table'
 import PageHeader from '@/shared/ui/PageHeader.vue'
 import Button from '@/shared/ui/Button.vue'
@@ -10,9 +11,10 @@ import Badge from '@/shared/ui/Badge.vue'
 import Modal from '@/shared/ui/Modal.vue'
 import LoadingSpinner from '@/shared/ui/LoadingSpinner.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
-import Alert from '@/shared/ui/Alert.vue'
 import DataTable from '@/shared/ui/DataTable.vue'
-import { getErrorMessage } from '@/shared/lib/errors'
+import { ApiError, getErrorMessage } from '@/shared/lib/errors'
+import { useToast } from '@/shared/composables/useToast'
+import { formatDateTime } from '@/shared/lib/format'
 import { useDebouncedSearch } from '@/shared/composables/useDebouncedSearch'
 import { useJobPoller } from '@/shared/composables/useJobPoller'
 import { useCategoriesQuery } from '@/features/categories/queries/categories'
@@ -32,13 +34,13 @@ import { useEventQuery } from '@/features/events/queries/events'
 import type { BookingListItem, Seat } from '@/shared/api/types'
 
 const route = useRoute()
+const queryClient = useQueryClient()
 const eventId = computed(() => route.params.eventId as string)
 
 const showCreate = ref(false)
 const showPayment = ref(false)
 const selectedBookingId = ref('')
-const error = ref('')
-const message = ref('')
+const { showToast } = useToast()
 const selectedSeatIds = ref<string[]>([])
 const differentGuests = ref(false)
 
@@ -81,7 +83,7 @@ const { data: allSeats, isLoading: seatsLoading } = useAllSeatsQuery(eventId)
 const batchMutation = useCreateBookingsBatchMutation(eventId)
 const updateMutation = useUpdateBookingMutation(eventId)
 const deleteMutation = useDeleteBookingMutation(eventId)
-const resendMutation = useResendInvitationMutation()
+const resendMutation = useResendInvitationMutation(eventId)
 const paymentMutation = useCreatePaymentMutation(
   computed(() => selectedBookingId.value),
   eventId,
@@ -112,6 +114,20 @@ const legendCategories = computed(() => {
 
 const seatingLocked = computed(() => event.value?.seating_phase === 'preview')
 const seatingApproved = computed(() => event.value?.seating_phase === 'approved')
+
+function inviteAction(booking: BookingListItem) {
+  const status = booking.invitation_email_status ?? 'not_sent'
+  if (status === 'pending') {
+    return { label: 'Sending…', disabled: true }
+  }
+  if (status === 'sent' && booking.invitation_resend_available_at) {
+    return { label: 'Resend', disabled: false }
+  }
+  if (status === 'sent') {
+    return { label: 'Resend', disabled: false }
+  }
+  return { label: 'Send invite', disabled: false }
+}
 
 const seatById = computed(() => {
   const map = new Map<string, Seat>()
@@ -210,15 +226,17 @@ const bookingColumns = computed<ColumnDef<BookingListItem>[]>(() => [
         )
       }
       if (paid && seatingApproved.value) {
+        const invite = inviteAction(row.original)
         actions.push(
           h(
             Button,
             {
               size: 'sm',
               variant: 'secondary',
-              onClick: () => resend(id),
+              disabled: invite.disabled,
+              onClick: () => resend(id, row.original),
             },
-            () => 'Resend invite',
+            () => invite.label,
           ),
         )
       }
@@ -252,7 +270,13 @@ watch(differentGuests, (enabled) => {
 })
 
 function toggleSeat(seatId: string) {
-  if (seatingLocked.value) return
+  if (seatingLocked.value) {
+    showToast(
+      'Seating draft in review. Approve or reject on the Seating draft page before creating new bookings.',
+      'warning',
+    )
+    return
+  }
   const seat = seatById.value.get(seatId)
   if (!seat || seat.status !== 'available') return
 
@@ -296,9 +320,8 @@ function openCreate() {
 }
 
 async function createBookings() {
-  error.value = ''
   if (!selectedSeats.value.length) {
-    error.value = 'Select at least one seat'
+    showToast('Select at least one seat', 'error')
     return
   }
 
@@ -314,7 +337,7 @@ async function createBookings() {
   })
 
   if (items.some((item) => !item.name || !item.email)) {
-    error.value = 'Name and email are required for each seat'
+    showToast('Name and email are required for each seat', 'error')
     return
   }
 
@@ -325,48 +348,64 @@ async function createBookings() {
     })
     showCreate.value = false
     resetCreateForm()
-    message.value = `Created ${items.length} booking(s)`
+    showToast(`Created ${items.length} booking(s)`, 'success')
   } catch (err) {
-    error.value = getErrorMessage(err)
+    showToast(getErrorMessage(err), 'error')
   }
 }
 
 async function updateStatus(bookingId: string, status: string) {
-  error.value = ''
   try {
     await updateMutation.mutateAsync({
       bookingId,
       body: { status: status as 'pending' | 'not_paid' | 'paid' | 'cancelled' },
     })
+    showToast('Booking updated', 'success')
   } catch (err) {
-    error.value = getErrorMessage(err)
+    showToast(getErrorMessage(err), 'error')
   }
 }
 
 async function removeBooking(bookingId: string) {
-  error.value = ''
   try {
     await deleteMutation.mutateAsync(bookingId)
+    showToast('Booking deleted', 'success')
   } catch (err) {
-    error.value = getErrorMessage(err)
+    showToast(getErrorMessage(err), 'error')
   }
 }
 
-async function resend(bookingId: string) {
-  error.value = ''
-  message.value = ''
+async function resend(bookingId: string, booking: BookingListItem) {
+  if (booking.invitation_resend_available_at) {
+    const availableAt = new Date(booking.invitation_resend_available_at)
+    if (availableAt.getTime() > Date.now()) {
+      showToast(`Resend available ${formatDateTime(booking.invitation_resend_available_at)}`, 'warning')
+      return
+    }
+  }
+
   try {
     const result = await resendMutation.mutateAsync(bookingId)
     await pollJob(result.job_id, {
-      onDone: () => {
-        message.value = 'Invitation resent'
+      onDone: async () => {
+        showToast('Invitation sent', 'success')
+        await queryClient.invalidateQueries({ queryKey: ['bookings', eventId.value] })
       },
-      onFailed: () => {
-        error.value = 'Resend invitation failed'
+      onFailed: async () => {
+        showToast('Invitation send failed', 'error')
+        await queryClient.invalidateQueries({ queryKey: ['bookings', eventId.value] })
       },
     })
   } catch (err) {
-    error.value = getErrorMessage(err)
+    if (err instanceof ApiError && err.code === 'INVITATION_RESEND_TOO_SOON') {
+      showToast(err.message, 'warning')
+      return
+    }
+    if (err instanceof ApiError && err.code === 'INVITATION_SEND_IN_PROGRESS') {
+      showToast('Invitation is still sending', 'warning')
+      return
+    }
+    showToast(getErrorMessage(err), 'error')
   }
 }
 
@@ -376,7 +415,6 @@ function openPayment(bookingId: string) {
 }
 
 async function submitPayment() {
-  error.value = ''
   try {
     await paymentMutation.mutateAsync({
       amount: paymentForm.amount,
@@ -387,8 +425,9 @@ async function submitPayment() {
     showPayment.value = false
     paymentForm.amount = ''
     paymentForm.method = ''
+    showToast('Payment recorded', 'success')
   } catch (err) {
-    error.value = getErrorMessage(err)
+    showToast(getErrorMessage(err), 'error')
   }
 }
 
@@ -400,12 +439,6 @@ async function submitPayment() {
       title="Bookings"
       description="Manual seating: select seats on the map and enter guest details to create bookings immediately. For bulk auto-assign from uploaded guests, use Seating draft."
     />
-
-    <Alert v-if="message" tone="success" :title="message" />
-    <Alert v-if="error" tone="error" :title="error" />
-    <Alert v-if="seatingLocked" tone="warning" title="Seating draft open">
-      A seating draft is in review. Approve or reject on the Seating draft page before creating new bookings.
-    </Alert>
 
     <section class="space-y-4 rounded-xl border border-border bg-surface-raised p-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

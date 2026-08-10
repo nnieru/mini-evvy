@@ -180,6 +180,7 @@ func main() {
 		r.Post("/events/{eventId}/seating-reject", eventJobsHandler.RejectSeating)
 		r.Patch("/events/{eventId}/seating-draft/items/{itemId}", eventJobsHandler.ReassignDraftItem)
 		r.Get("/events/{eventId}/jobs", jobHandler.ListByEvent)
+		r.Get("/events/{eventId}/jobs/invitation-emails/export", jobHandler.ExportInvitationEmails)
 
 		r.Get("/events/{eventId}/email-template/invitation", emailTemplateHandler.GetInvitation)
 		r.Put("/events/{eventId}/email-template/invitation", emailTemplateHandler.UpsertInvitation)

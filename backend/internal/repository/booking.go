@@ -15,12 +15,20 @@ import (
 
 const bookingSelectCols = `
 	id, guest_id, event_id, category_id, seat_id, source, status,
-	notes, paid_at, barcode, created_by, updated_by, created_at, updated_at, deleted_at
+	notes, paid_at, barcode, invitation_email_status, invitation_email_sent_at,
+	created_by, updated_by, created_at, updated_at, deleted_at
 `
 
 const bookingListSelectCols = `
 	b.id, b.guest_id, b.event_id, b.category_id, b.seat_id, b.source, b.status,
-	b.notes, b.paid_at, b.barcode, b.created_by, b.updated_by, b.created_at, b.updated_at, b.deleted_at
+	b.notes, b.paid_at, b.barcode, b.invitation_email_status, b.invitation_email_sent_at,
+	b.created_by, b.updated_by, b.created_at, b.updated_at, b.deleted_at
+`
+
+const bookingSelectColsFromB = `
+	b.id, b.guest_id, b.event_id, b.category_id, b.seat_id, b.source, b.status,
+	b.notes, b.paid_at, b.barcode, b.invitation_email_status, b.invitation_email_sent_at,
+	b.created_by, b.updated_by, b.created_at, b.updated_at, b.deleted_at
 `
 
 type BookingRepo struct {
@@ -44,6 +52,8 @@ func scanBooking(row interface{ Scan(dest ...any) error }) (model.SeatBooking, e
 		&booking.Notes,
 		&booking.PaidAt,
 		&booking.Barcode,
+		&booking.InvitationEmailStatus,
+		&booking.InvitationEmailSentAt,
 		&booking.CreatedBy,
 		&booking.UpdatedBy,
 		&booking.CreatedAt,
@@ -208,6 +218,8 @@ func scanBookingListRow(row interface{ Scan(dest ...any) error }) (model.Booking
 		&item.Notes,
 		&item.PaidAt,
 		&item.Barcode,
+		&item.InvitationEmailStatus,
+		&item.InvitationEmailSentAt,
 		&item.CreatedBy,
 		&item.UpdatedBy,
 		&item.CreatedAt,
@@ -285,7 +297,7 @@ func (r *BookingRepo) CountActiveByGuestID(ctx context.Context, db DBTX, guestID
 
 func (r *BookingRepo) ListExpiredUnpaid(ctx context.Context, db DBTX, olderThan time.Time) ([]model.SeatBooking, error) {
 	const query = `
-		SELECT ` + bookingListSelectCols + `
+		SELECT ` + bookingSelectColsFromB + `
 		FROM seat_bookings b
 		INNER JOIN seats s ON s.id = b.seat_id
 		WHERE b.deleted_at IS NULL
@@ -395,4 +407,96 @@ func (r *BookingRepo) ListActiveByEventID(ctx context.Context, db DBTX, eventID 
 		return nil, fmt.Errorf("list active bookings rows: %w", err)
 	}
 	return out, nil
+}
+
+func (r *BookingRepo) SetInvitationEmailPending(ctx context.Context, db DBTX, id uuid.UUID) error {
+	const query = `
+		UPDATE seat_bookings SET
+			invitation_email_status = 'pending',
+			updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL
+	`
+
+	tag, err := db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("set invitation email pending: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *BookingRepo) UpdateInvitationEmailResult(
+	ctx context.Context,
+	db DBTX,
+	id uuid.UUID,
+	status model.InvitationEmailStatus,
+	sentAt *time.Time,
+) error {
+	const query = `
+		UPDATE seat_bookings SET
+			invitation_email_status = $1,
+			invitation_email_sent_at = COALESCE($2, invitation_email_sent_at),
+			updated_at = now()
+		WHERE id = $3 AND deleted_at IS NULL
+	`
+
+	tag, err := db.Exec(ctx, query, status, sentAt, id)
+	if err != nil {
+		return fmt.Errorf("update invitation email result: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *BookingRepo) ReconcileInvitationEmailStatusByEventID(ctx context.Context, db DBTX, eventID uuid.UUID) error {
+	const markSent = `
+		UPDATE seat_bookings b
+		SET
+			invitation_email_status = 'sent',
+			invitation_email_sent_at = COALESCE(b.invitation_email_sent_at, j.updated_at)
+		FROM (
+			SELECT DISTINCT ON ((data->>'booking_id')::uuid)
+				(data->>'booking_id')::uuid AS booking_id,
+				updated_at
+			FROM jobs
+			WHERE type = 'send_invitation'
+				AND status = 'done'
+				AND (data->>'event_id')::uuid = $1
+			ORDER BY (data->>'booking_id')::uuid, created_at DESC
+		) j
+		WHERE b.id = j.booking_id
+			AND b.event_id = $1
+			AND b.invitation_email_status = 'pending'
+			AND b.deleted_at IS NULL`
+
+	if _, err := db.Exec(ctx, markSent, eventID); err != nil {
+		return fmt.Errorf("reconcile invitation sent: %w", err)
+	}
+
+	const markFailed = `
+		UPDATE seat_bookings b
+		SET invitation_email_status = 'failed'
+		FROM (
+			SELECT DISTINCT ON ((data->>'booking_id')::uuid)
+				(data->>'booking_id')::uuid AS booking_id
+			FROM jobs
+			WHERE type = 'send_invitation'
+				AND status = 'failed'
+				AND (data->>'event_id')::uuid = $1
+			ORDER BY (data->>'booking_id')::uuid, created_at DESC
+		) j
+		WHERE b.id = j.booking_id
+			AND b.event_id = $1
+			AND b.invitation_email_status = 'pending'
+			AND b.deleted_at IS NULL`
+
+	if _, err := db.Exec(ctx, markFailed, eventID); err != nil {
+		return fmt.Errorf("reconcile invitation failed: %w", err)
+	}
+
+	return nil
 }

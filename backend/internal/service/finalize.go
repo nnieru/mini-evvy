@@ -403,13 +403,8 @@ func (s *FinalizeService) ApproveSeating(ctx context.Context, actorID, eventID u
 	}
 
 	for _, booking := range createdBookings {
-		_, err := s.jobEnqueue.Enqueue(ctx, jobtype.SendInvitation, jobtype.SendInvitationPayload{
-			BookingID: booking.ID,
-			GuestID:   booking.GuestID,
-			EventID:   eventID,
-		})
-		if err != nil {
-			return fmt.Errorf("enqueue invitation: %w", err)
+		if _, err := enqueueInvitationEmail(ctx, s.pool, s.bookings, s.jobEnqueue, &booking); err != nil {
+			return fmt.Errorf("enqueue invitation for booking %s: %w", booking.ID, err)
 		}
 	}
 

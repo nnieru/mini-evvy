@@ -35,6 +35,15 @@ type bookingStore interface {
 	Update(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 	SoftDelete(ctx context.Context, db repository.DBTX, b *model.SeatBooking) (*model.SeatBooking, error)
 	CountActiveByGuestID(ctx context.Context, db repository.DBTX, guestID uuid.UUID) (int, error)
+	SetInvitationEmailPending(ctx context.Context, db repository.DBTX, id uuid.UUID) error
+	UpdateInvitationEmailResult(
+		ctx context.Context,
+		db repository.DBTX,
+		id uuid.UUID,
+		status model.InvitationEmailStatus,
+		sentAt *time.Time,
+	) error
+	ReconcileInvitationEmailStatusByEventID(ctx context.Context, db repository.DBTX, eventID uuid.UUID) error
 }
 
 type guestLookup interface {
@@ -487,6 +496,10 @@ func (s *BookingService) ListByEventPaged(ctx context.Context, actorID, eventID 
 	}
 	if !ok {
 		return nil, ErrForbidden
+	}
+
+	if err := s.bookings.ReconcileInvitationEmailStatusByEventID(ctx, s.pool, eventID); err != nil {
+		return nil, fmt.Errorf("reconcile invitation status: %w", err)
 	}
 
 	total, err := s.bookings.CountByEventIDFiltered(ctx, s.pool, eventID, repository.BookingListQuery{

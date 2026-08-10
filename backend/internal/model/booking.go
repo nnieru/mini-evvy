@@ -22,6 +22,15 @@ const (
 	BookingCancelled BookingStatus = "cancelled"
 )
 
+type InvitationEmailStatus string
+
+const (
+	InvitationEmailNotSent InvitationEmailStatus = "not_sent"
+	InvitationEmailPending InvitationEmailStatus = "pending"
+	InvitationEmailSent    InvitationEmailStatus = "sent"
+	InvitationEmailFailed  InvitationEmailStatus = "failed"
+)
+
 type SeatBooking struct {
 	ID         uuid.UUID
 	GuestID    uuid.UUID
@@ -32,8 +41,10 @@ type SeatBooking struct {
 	Status     BookingStatus
 	Notes      *string
 	PaidAt     *time.Time
-	Barcode    *string
-	CreatedBy  uuid.UUID
+	Barcode                *string
+	InvitationEmailStatus  InvitationEmailStatus
+	InvitationEmailSentAt  *time.Time
+	CreatedBy              uuid.UUID
 	UpdatedBy  *uuid.UUID
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
