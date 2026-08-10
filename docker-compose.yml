@@ -10,7 +10,7 @@ services:
   worker:
     image: ghcr.io/${GHCR_OWNER}/mini-evvy-worker:latest
     env_file: .env
-    mem_limit: c
+    mem_limit: 128m
     restart: unless-stopped
 
   frontend:
